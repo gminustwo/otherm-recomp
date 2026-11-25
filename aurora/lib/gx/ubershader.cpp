@@ -800,31 +800,33 @@ fn swz(v: vec4f, e: u32) -> vec4f {
     return vec4f(v[fld(e, 0u, 2u)], v[fld(e, 2u, 2u)], v[fld(e, 4u, 2u)], v[fld(e, 6u, 2u)]);
 }
 
-fn sample_map(map: u32, uv: vec2f, bias: f32) -> vec4f {
+// Not "bias": with Dawn's disable_symbol_renaming (webgpu/gpu.cpp) Tint keeps the name in MSL, where it hides
+// metal::bias, the sample option textureSampleBias becomes, and the Metal shader fails to compile.
+fn sample_map(map: u32, uv: vec2f, lod_bias: f32) -> vec4f {
     switch map {
         case 0u: {
-            return textureSampleBias(tex0, tex0_samp, uv, bias);
+            return textureSampleBias(tex0, tex0_samp, uv, lod_bias);
         }
         case 1u: {
-            return textureSampleBias(tex1, tex1_samp, uv, bias);
+            return textureSampleBias(tex1, tex1_samp, uv, lod_bias);
         }
         case 2u: {
-            return textureSampleBias(tex2, tex2_samp, uv, bias);
+            return textureSampleBias(tex2, tex2_samp, uv, lod_bias);
         }
         case 3u: {
-            return textureSampleBias(tex3, tex3_samp, uv, bias);
+            return textureSampleBias(tex3, tex3_samp, uv, lod_bias);
         }
         case 4u: {
-            return textureSampleBias(tex4, tex4_samp, uv, bias);
+            return textureSampleBias(tex4, tex4_samp, uv, lod_bias);
         }
         case 5u: {
-            return textureSampleBias(tex5, tex5_samp, uv, bias);
+            return textureSampleBias(tex5, tex5_samp, uv, lod_bias);
         }
         case 6u: {
-            return textureSampleBias(tex6, tex6_samp, uv, bias);
+            return textureSampleBias(tex6, tex6_samp, uv, lod_bias);
         }
         default: {
-            return textureSampleBias(tex7, tex7_samp, uv, bias);
+            return textureSampleBias(tex7, tex7_samp, uv, lod_bias);
         }
     }
 }

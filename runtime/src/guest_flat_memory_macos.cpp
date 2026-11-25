@@ -77,6 +77,17 @@ void Initialize(const std::vector<RegionRequest>& regions) {
     g_layout = regions; g_active = true;
 }
 uint8_t* HostPointer(uint32_t a) { for (const auto& m : g_mappings) if (a >= m.base && uint64_t(a - m.base) < m.size) return m.host + (a - m.base); return nullptr; }
+// A page of the MMIO window (0xCC000000..0xCE000000) that direct guest reads see (audio.cpp's AI registers). The whole
+// 4 GiB reservation is readable and writable here, so the range is only zeroed. With 16 KiB host pages (Apple silicon)
+// guest accesses are checked and go through Memory::Read*, never the flat window: nullptr, as in guest_flat_memory.cpp.
+uint8_t* BackMmioRange(uint32_t guestStart, size_t size) {
+    std::lock_guard lock(g_mutex);
+    if (!g_active || g_base == nullptr || RequiresCheckedAccess()) return nullptr;
+    const uint64_t end = uint64_t(guestStart) + size;
+    if (guestStart < 0xCC000000u || end > 0xCE000000u || (guestStart & (uint32_t(getpagesize()) - 1)) != 0) return nullptr;
+    std::memset(g_base + guestStart, 0, size);
+    return g_base + guestStart;
+}
 void ProtectDeferredRange(uint32_t, size_t) {}
 void UnprotectDeferredRange(uint32_t, size_t) {}
 void RegisterExecutableRange(uint32_t, uint32_t) {}

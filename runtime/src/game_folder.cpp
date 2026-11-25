@@ -332,8 +332,10 @@ std::string Problem(const fs::path& root) {
 }
 
 fs::path GameRoot() {
-#if defined(__ANDROID__)
-    // The app's own folder on shared storage (Android/data/<app>/files), where its saves and settings are too.
+#if defined(__ANDROID__) || defined(__APPLE__)
+    // The app data folder, where its saves and settings are too: on Android the app's own folder on shared storage
+    // (Android/data/<app>/files); on macOS ~/Library/Application Support/OtherMRecompiled, not the .app, which can
+    // run from a read-only copy (App Translocation) and which an update replaces whole.
     return RuntimeConfigFile::ApplicationDataDirectory();
 #else
     // An AppImage's program runs from its read-only mount: the game folder is the one holding the .AppImage file.

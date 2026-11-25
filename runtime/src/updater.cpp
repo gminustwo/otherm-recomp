@@ -39,12 +39,17 @@ const std::string kApi = kTestUrl ? std::string(kTestUrl) + "/latest.json"
 const std::string kDownload = kTestUrl ? std::string(kTestUrl) + "/"
                                        : "https://github.com/gminustwo/otherm-recomp/releases/download/";
 
-// The release's download for this system, named by its tag (tools/package-linux.sh).
+// The release's download for this system, named by its tag (tools/package-windows.ps1, package-linux.sh,
+// package-macos.sh).
 std::string AssetFor(const std::string& tag) {
 #if defined(_WIN32)
     return "OtherMRecompiled-" + tag + "-windows-x64.zip";
 #elif defined(__ANDROID__)
     return "OtherMRecompiled-" + tag + "-android-arm64.apk";  // tools/build-android.ps1
+#elif defined(__APPLE__) && defined(__aarch64__)
+    return "OtherMRecompiled-" + tag + "-macos-arm64.zip";
+#elif defined(__APPLE__)
+    return "OtherMRecompiled-" + tag + "-macos-x86_64.zip";
 #else
     return "OtherMRecompiled-" + tag + "-x86_64.AppImage";
 #endif
@@ -211,6 +216,58 @@ void Download() {
         }
         RT_LOGF(RT_TAG_RUNTIME, "update %s installed over %s; quitting to start it\n", tag.c_str(),
                 RuntimeConfigFile::PathToUtf8(image.filename()).c_str());
+        ExitForAuroraWindowClose();
+        return;
+    }
+#endif
+#if defined(__APPLE__)
+    // A macOS .app is replaced whole: the download (one .app in a zip, tools/package-macos.sh) is unpacked in the app
+    // data folder and, once this program has quit, moved over the running .app, which then opens again. The player's
+    // files are in the app data folder, not in the .app, so none of them is touched.
+    {
+        const fs::path app = EngineDir().parent_path().parent_path();  // <name>.app/Contents/Resources
+        const std::string appText = RuntimeConfigFile::PathToUtf8(app);
+        if (app.extension() != ".app" || appText.find("/AppTranslocation/") != std::string::npos) {
+            // A development build, or a downloaded app macOS runs from a read-only copy until it is moved.
+            RT_LOGF(RT_TAG_RUNTIME, "update: %s can't be replaced in place (move the app to another folder first)\n",
+                    appText.c_str());
+            g_state = State::Failed;
+            return;
+        }
+        const fs::path work = RuntimeConfigFile::ApplicationDataDirectory() / "_update";
+        std::error_code ec;
+        fs::remove_all(work, ec);
+        fs::create_directories(work / "files", ec);
+        const fs::path archive = work / AssetFor(tag);
+        bool ok = RunHidden("curl -sfL -m 1800 -o " + Quote(archive) + " " + kDownload + tag + "/" + AssetFor(tag)) == 0 &&
+                  RunHidden("ditto -x -k " + Quote(archive) + " " + Quote(work / "files")) == 0;
+        fs::path fresh;
+        for (const auto& entry : fs::directory_iterator(work / "files", ec))
+            if (entry.path().extension() == ".app" && fs::exists(entry.path() / "Contents" / "MacOS" / "MetroidOtherM", ec))
+                fresh = entry.path();
+        if (!ok || fresh.empty()) {
+            RT_LOGF(RT_TAG_RUNTIME, "update download failed (%s)\n", AssetFor(tag).c_str());
+            fs::remove_all(work, ec);
+            g_state = State::Failed;
+            return;
+        }
+        // The old .app is moved aside first and put back if the new one can't take its place.
+        const fs::path previous = work / "previous.app";
+        const fs::path script = work / "update.sh";
+        std::ofstream out(script);
+        out << "#!/bin/sh\n"
+            << "while kill -0 " << getpid() << " 2>/dev/null; do sleep 1; done\n"
+            << "if mv " << Quote(app) << " " << Quote(previous) << "; then\n"
+            << "  mv " << Quote(fresh) << " " << Quote(app) << " || mv " << Quote(previous) << " " << Quote(app) << "\n"
+            << "fi\n"
+            << "open " << Quote(app) << "\n"
+            << "rm -rf " << Quote(work) << "\n";
+        out.close();
+        if (std::system(("sh " + Quote(script) + " >/dev/null 2>&1 &").c_str()) != 0) {
+            g_state = State::Failed;
+            return;
+        }
+        RT_LOGF(RT_TAG_RUNTIME, "update %s downloaded; quitting so it can replace %s\n", tag.c_str(), appText.c_str());
         ExitForAuroraWindowClose();
         return;
     }

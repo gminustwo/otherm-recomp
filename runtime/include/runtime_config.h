@@ -222,7 +222,18 @@ inline std::optional<std::filesystem::path> ExecutableDirectory() {
         }
         buffer.resize(buffer.size() * 2);
     }
-#elif defined(__APPLE__) || defined(__ANDROID__)
+#elif defined(__APPLE__)
+    // A macOS .app keeps its program in Contents/MacOS and the program's own files (dsp_coef.bin, wii_bootstrap,
+    // startup, nodtool, ...) in Contents/Resources, which is also what SDL_GetBasePath answers there: that folder is
+    // returned, so every "beside the program" lookup finds them (tools/package-macos.sh). A bare executable in a build
+    // folder keeps its own folder.
+    auto directory = RuntimePlatform::ExecutableDirectory();
+    if (directory && directory->filename() == "MacOS" && directory->parent_path().filename() == "Contents" &&
+        directory->parent_path().parent_path().extension() == ".app") {
+        return directory->parent_path() / "Resources";
+    }
+    return directory;
+#elif defined(__ANDROID__)
     return RuntimePlatform::ExecutableDirectory();
 #else
     // /proc/self/exe is a Linux-specific magic symlink to the running executable; readlink()
@@ -274,9 +285,10 @@ inline const std::optional<std::filesystem::path>& AppImageDirectory() {
 
 // Where the player's own files beside the program go (Metroid.ini): the AppImage's folder, else the program's. On
 // Android the app's data folder: the program's folder there holds the runtime files the app unpacks, which an update
-// replaces.
+// replaces. On macOS the app data folder too, where UserData's files go there: a downloaded .app can run from a
+// read-only copy (App Translocation) and an update replaces it whole.
 inline std::optional<std::filesystem::path> PlayerDirectory() {
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__APPLE__)
     return RuntimePlatform::ApplicationDataDirectory(kApplicationDirectoryName);
 #else
     if (const auto& appImage = AppImageDirectory()) return appImage;

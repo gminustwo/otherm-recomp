@@ -13,7 +13,8 @@ runtime: the game's own code runs natively, with the Wii's graphics, sound and c
 **No game data is included**: you need your own disc image of the USA release (`R3OE01`, revision 1). The downloads
 contain the game's code in recompiled form, none of its data; the game's files are read from your disc image.
 
-Downloads for Windows (a zip), Linux / the Steam Deck (an AppImage) and Android (an APK) are on the
+Downloads for Windows (a zip), Linux / the Steam Deck (an AppImage), Android (an APK) and Macs with Apple
+silicon (an app) are on the
 [Releases](https://github.com/gminustwo/otherm-recomp/releases) page; the game offers new versions itself and installs
 them in place.
 
@@ -102,6 +103,24 @@ saves, settings (`Config.toml`), save states, logs, mods, `Metroid.ini` and the 
 own file managers don't show that folder; connect the device to a PC over USB to reach it. An update keeps it;
 uninstalling the app deletes it, so copy your saves first. Android's back button opens Options.
 
+## Installing on a Mac
+
+For Macs with Apple silicon (M1 or later), macOS 12 or newer.
+
+1. Download `OtherMRecompiled-<version>-macos-arm64.zip` from
+   [Releases](https://github.com/gminustwo/otherm-recomp/releases) and open it: it holds `Other M Recompiled.app`.
+2. Drag the app into Applications (or any folder of your own) before you start it: started from where it was
+   unpacked, macOS runs a read-only copy, and the game can't update itself in place.
+3. The app is not notarized by Apple, so the first start is refused. Open System Settings > Privacy & Security, scroll
+   down to "Other M Recompiled was blocked" and click **Open Anyway**. Later starts open normally.
+4. Pick **Play** (or **Game files**) on the start screen and point it at the folder that holds your disc image:
+   `.rvz`, `.iso`, `.wia`, `.gcz`, `.ciso` or `.wbfs`, any name. **Use this folder** sets the game up from it, once
+   (a few minutes, with a progress bar; about 7.5 GB). Afterwards you can delete the image.
+
+On a Mac everything the game writes goes to `~/Library/Application Support/OtherMRecompiled` (in Finder: Go > Go to
+Folder): saves, settings, save states, logs, mods, `Metroid.ini` and the `Disc/DATA` set up from your disc image.
+An update replaces only the app and keeps all of it.
+
 ## The start screen
 
 Every start opens the start screen, in the style of the game's menus, before the game boots: **Play** starts the
@@ -162,6 +181,7 @@ have at hand:
   - Windows: `UserData\Logs` next to `MetroidOtherM.exe`
   - Android: `Logs` in `Android/data/io.github.gminustwo.otherm/files` (connect the device to a PC over USB to copy
     it)
+  - Mac: `~/Library/Application Support/OtherMRecompiled/Logs`
 
   It lists your settings and what the game was doing in a slow frame, a freeze or a crash. It also shows folder
   paths, which can include your user name: edit those out if you like.
@@ -214,6 +234,18 @@ It builds nod's C library once (the app reads disc images with it), compiles the
 `build-android\`, then packs and signs the APK. The signing key is made on first use as
 `%USERPROFILE%\.android\otherm-release.jks`, its password beside it: keep both, since Android installs an update only
 over an app signed with the same key.
+
+### macOS (Apple silicon)
+
+After the Windows translation above, copy its `generated\` and `dependencies\` folders into the same checkout on an
+Apple silicon Mac with Xcode (or its Command Line Tools) and CMake + Ninja (`brew install cmake ninja`):
+
+```sh
+bash tools/build-macos.sh                      # compiles the translated game with Apple Clang: ~/otherm-macos/build
+bash tools/package-macos.sh --version v1.0.0   # dist/OtherMRecompiled-v1.0.0-macos-arm64.zip (ad-hoc signed app)
+```
+
+`package-macos.sh` downloads `nodtool` once.
 
 | Folder | What it is |
 |---|---|
