@@ -1,0 +1,41 @@
+# Other M (R3OE01 rev 1): names from instruction and string patterns (find_by_pattern.py).
+800AA130 AIInit  # loads the RVL_SDK AI version string pointer (80331AF8) at 800AA158
+800AAF80 AXInit  # loads the RVL_SDK AX version string pointer (80331B08) at 800AAF98
+800B1C70 PPCMfhid0  # mfspr/mtspr r3,1008; blr
+800B1C80 PPCMthid0  # mfspr/mtspr r3,1008; blr
+800B1C90 PPCMfl2cr  # mfspr/mtspr r3,1017; blr
+800B1CA0 PPCMtl2cr  # mfspr/mtspr r3,1017; blr
+800B1CB0 PPCMtdec  # mfspr/mtspr r3,22; blr
+800B1CF0 PPCMtmmcr0  # mfspr/mtspr r3,952; blr
+800B1D00 PPCMtmmcr1  # mfspr/mtspr r3,956; blr
+800B1D10 PPCMtpmc1  # mfspr/mtspr r3,953; blr
+800B1D20 PPCMtpmc2  # mfspr/mtspr r3,954; blr
+800B1D30 PPCMtpmc3  # mfspr/mtspr r3,957; blr
+800B1D40 PPCMtpmc4  # mfspr/mtspr r3,958; blr
+800B1DA0 PPCMfhid2  # mfspr/mtspr r3,920; blr
+800B1DB0 PPCMthid2  # mfspr/mtspr r3,920; blr
+800B1DC0 PPCMtwpar  # mfspr/mtspr r3,921; blr
+800DF6A0 DSPInit  # loads the RVL_SDK DSP version string pointer (80331BC0) at 800DF6D8
+800E0B50 DVDInit  # loads the RVL_SDK DVD version string pointer (80331BD8) at 800E0B70
+800E6C20 DVDLowReadDiskID  # stores DI command 0x70 at 800E6D2C
+800E7740 DVDLowClosePartition  # stores DI command 0x8C at 800E7784
+800E78B0 DVDLowUnencryptedRead  # stores DI command 0x8D at 800E79A4
+800E7A50 DVDLowStopMotor  # stores DI command 0xE3 at 800E7B40
+800E7BF0 DVDLowInquiry  # stores DI command 0x12 at 800E7CE0
+800E7D60 DVDLowRequestError  # stores DI command 0xE0 at 800E7E48
+800E7EE0 DVDLowReset  # stores DI command 0x8A at 800E7FC8
+800E8060 DVDLowAudioBufferConfig  # stores DI command 0xE4 at 800E8150
+800E8530 DVDLowRead  # stores DI command 0x71 at 800E863C
+800E86E0 DVDLowSeek  # stores DI command 0xAB at 800E87D0
+800E8890 DVDLowPrepareCoverRegister  # stores DI command 0x7A at 800E88D4
+800E8D10 DVDLowClearCoverInterrupt  # stores DI command 0x86 at 800E8D54
+800EA9A0 EXIInit  # loads the RVL_SDK EXI version string pointer (80331C20) at 800EAB3C
+800ED080 GXInit  # loads the RVL_SDK GX version string pointer (80331C38) at 800ED098
+800FAB80 KPADInit  # loads the RVL_SDK KPAD version string pointer (80331CA0) at 800FAFA8
+80106A20 NANDInit  # loads the RVL_SDK NAND version string pointer (80331D30) at 80106B14
+801087C0 OSInit  # loads the RVL_SDK OS version string pointer (80331D70) at 80108A54
+80109120 OSRegisterVersion  # called with 11 of the RVL_SDK version strings
+80116810 SCInit  # loads the RVL_SDK SC version string pointer (80331E00) at 80116848
+801190C0 SIInit  # loads the RVL_SDK SI version string pointer (80331F20) at 801190D8
+8011BDC0 VIInit  # loads the RVL_SDK VI version string pointer (80331F38) at 8011BDE0
+80122130 WPADInit  # loads the RVL_SDK WPAD version string pointer (80331F70) at 801222B4

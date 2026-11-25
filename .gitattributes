@@ -1,0 +1,8 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+# Linux scripts must keep LF line endings on any checkout
+*.sh text eol=lf
+# Dolphin profiles are read byte for byte; keep them as they are
+*.ini -text
+# Patch files must stay LF: git apply matches context bytes against LF upstream sources
+*.patch -text

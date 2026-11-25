@@ -1,0 +1,57 @@
+# Metroid: Other M (R3OE01 rev 1) function names checked by hand: "hexaddr name  # evidence".
+# Read after names_sig.txt by gen_function_map.py (these win). Keep the evidence: an address, a string, a caller.
+80006310 __start                   # DOL entry point
+800064D0 __init_registers          # first bl from __start; lis/ori r1, r2, r13 (also a Dolphin signature match)
+80006E58 OtherM_ReadGameRel        # "Linking module otherM..." (0x8020B4A0); reads /rel/Release/game.rel into OSAllocFromMEM1ArenaLo
+80006F80 OtherM_LinkGameRel        # BSS after fixSize, OSSetArenaLo / OSAllocFromMEM1ArenaLo, then OSLinkFixed (v3) or OSLink
+80109E00 OSGetMEM1ArenaLo          # lwz r3,-0x7C38(r13) (the word OSAllocFromMEM1ArenaLo bumps)
+80109E10 OSGetMEM2ArenaLo          # lwz r3,-0x7C34(r13)
+80109E20 OSGetArenaLo              # lwz r3,-0x7C38(r13): MEM1's, as on every Wii title
+80109E30 OSSetMEM1ArenaHi          # stw r3,-0x72E0(r13) (the word OSAllocFromMEM1ArenaHi lowers)
+80109E40 OSSetMEM2ArenaHi          # stw r3,-0x72DC(r13)
+80109E50 OSSetArenaHi              # stw r3,-0x72E0(r13)
+80109E60 OSSetMEM1ArenaLo          # stw r3,-0x7C38(r13); OSInit calls it with __ArenaLo (0x80108948)
+80109E70 OSSetMEM2ArenaLo          # stw r3,-0x7C34(r13)
+80109E80 OSSetArenaLo              # stw r3,-0x7C38(r13); the REL linker gives the arena back through it (0x8000700C)
+80109ED0 OSAllocFromMEM1ArenaHi    # (hi - size) & ~(align - 1) on -0x72E0(r13)
+8010FF30 OSLink                    # game.rel linker, version < 3 path (0x8000705C)
+8010FF40 OSLinkFixed               # game.rel linker, version 3 path (0x80007038)
+# --- found by probe_function.py / disassembly, 2026-11-05 (NOTES.md "Phase 1") ---
+8010B390 OSPanic                   # SDK signature "OS::Panic"; called by OSRestart/OSReturnToMenu with (file, line 0x40A/0x391, msg); between OSVReport and OSSetErrorHandler
+801114F0 OSRestart                 # SDK signature "OS::Restart"; __OSShutdownDevices(4), __OSReboot, ends in OSPanic(file, 0x40A)
+801115D0 __OSReturnToMenuCore      # the 0x290-byte core both OSReturnToMenu (r3=1) and OSReturnToSetting (r3=0) call; SDK name unknown (NOT OSResetSystem, which is absent)
+80111860 OSReturnToSetting         # SDK signature "OS::ReturnToSetting"; calls the core with 0, then OSPanic(file, 0x37F)
+801118A0 OSReturnToMenu            # SDK signature "OS::ReturnToMenu"; calls the core with 1, then OSPanic(file, 0x391)
+801118E0 __OSReturnToMenuForError  # SDK signature "OS::__ReturnToMenuForError" (0xB0; the weak alignment at 80111990 was wrong)
+80111990 fn_80111990               # 0x60 after __OSReturnToMenuForError, before OSGetResetCode: unnamed on purpose (the aligner's guess was __OSReturnToMenuForError)
+800E9830 SetExiInterruptMask       # similarity 0.98 with the SDK function, shared constants 0x80000 / 0x410000, in the EXI area before EXIImm
+80116760 exit                      # destructor loop over the global chain then bl PPCHalt (800B1CD0), the SDK's exit shape; 80116710 is the same loop without the halt (__destroy_global_chain)
+800A9FD0 AIRegisterDMACallback     # the one function right before AIInitDMA (800AA020), as in the SDK's link order
+800DF640 DSPCheckMailToDSP         # lhz 0x5000(0xCC000000) bit 15, as the SDK function
+800DF650 DSPCheckMailFromDSP       # lhz 0x5004(0xCC000000) bit 15, as the SDK function (the signature database cannot tell the two apart)
+80119A10 SISetSamplingRate         # the only function between SIGetType and SIRefreshSamplingRate, with the SDK function's 0xCC000000 constant (SIGetTypeAsync is dead-stripped)
+80125FE0 WPADGetDpdSensitivity     # between WPADSendStreamData and WPADIsDpdEnabled, as in the SDK's link order (0x40 in this SDK)
+80123AF0 WPADGetInfoAsync          # SDK signature "WPAD::GetInfoAsync"; between WPADSetDataFormat and WPADControlMotor as in the SDK's link order
+800E92A0 _ES_GetDataDir            # same ES ioctlv 0x1D structure and -0x3F9 error as the SDK function (similarity 0.81); the ES fd comes from r13-0x7DD0
+800EB600 ISFS_OpenLib              # SDK signature "ISFS::OpenLib", similarity 0.97 with the SDK function
+80104820 nandCreate                # 0x140 helper the three NANDCreate variants call with (path, perm, attr, callback, block, async, private)
+80104960 NANDCreate                # calls nandCreate(path, perm, attr, 0, 0, 1) then nandWait: the synchronous variant (new in this SDK)
+801049E0 NANDCreateAsync           # calls nandCreate(..., callback, block, 1, 0): async, as the SDK function (similarity 1.00)
+80104A60 NANDPrivateCreateAsync    # calls nandCreate(..., callback, block, 1, 1): private async, as the SDK function
+80104AE0 NANDDelete                # similarity 0.98 with the SDK function, same 0xB0 size, right before the delete-async pair
+80107010 NANDPrivateGetTypeAsync   # SDK signature "NAND::Private::GetTypeAsync", after NANDGetType (80106FC0) as in the SDK's link order
+80106FC0 NANDGetType               # SDK signature "NAND::GetType"
+80107290 NANDGetAvailableArea      # (u32* fsBlock, u32* inode): ISFS_GetUsage(nandGetHomeDir()), nandCalcUsage, then min(0x400-blocks, 0x4400-total) / min(0x20-inodes, 0xFA0-total) stored through r3/r4 (801072C0..8010738C); no third argument, so not NANDCheck (the "NAND::Check" signature match was a collision)
+800F3EB0 GXLoadPosMtxImm           # XF load command (11 << 16 | id*4): 12 floats, as GXLoadPosMtxImm; the earlier GXGetProjectionv label was wrong (that function is absent)
+800F3F30 GXLoadNrmMtxImm           # XF load of 9 floats through 0xCC008000, after GXLoadPosMtxIndx
+800F3F90 GXLoadNrmMtxIndx3x3       # writes 0xCC010000 (indexed load) after GXLoadNrmMtxImm; label unconfirmed, named only so it no longer carries GXLoadNrmMtxImm's
+8011B1F0 __VIRetraceHandler        # similarity 0.98 with the SDK function, 9 shared constants (the signature label "_caseD_2" was a fragment's name); before VISetPreRetraceCallback
+800AF420 __InitParams              # AXFX reverb __InitParams: similarity 0.99 with the SDK function (0x330 vs 0x324)
+800E01D0 __DVDFSInit               # the SDK function's body (FST pointer from 0x80000038 into r13 globals), right before DVDConvertPathToEntrynum
+801223C0 WPADInit                  # public WPADInit: OSRegisterShutdownFunction(0x80111110), WUD check (0x80133FE0), then bl 0x80122130; KPADInitEx (0x800FAB80) calls it
+80122130 WPADiInit                 # the internal init the public WPADInit calls (0x290; registers the RVL_SDK WPAD version string); SDK name unconfirmed
+800FA360 KPADReadEx                # (chan, status, count, err): WPADGetStatus()==3 check, KPAD init flag r13-0x73BC, per-channel 0x688-byte work; 0x810 bytes right before KPADInit
+800FA350 KPADRead                  # 0x10 wrapper: li r6,0; b KPADReadEx
+80104FB0 NANDSeekAsync             # stores the callback at block+4, maps whence 0/1/2, ISFS_SeekAsync(..., block); size 0xB0 like the SDK function's
+80105060 NANDReadDirAsync          # nandGenerateAbsPath, nandIsPrivatePath (-0x66 = NAND_RESULT_AUTHENTICATION? on private), ISFS_ReadDir; the signature "NAND::SeekAsync" here was a collision
+80105530 NANDMoveAsync             # (src, dstDir, callback, block): stores the callback at block+4, nandIsInitialized, nandMove(src, dst, block, 1, 0), then the error conversion 0x801067A0; the game passes callback 0x80174BEC from 0x80174E84 (not the synchronous NANDMove)

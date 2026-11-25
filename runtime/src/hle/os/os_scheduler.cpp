@@ -1,0 +1,691 @@
+// SelectThread scheduler, OSWakeupThread and the OSMutex primitives.
+
+#include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <optional>
+#include <iostream>
+
+#include "timebase_contract.h"
+#include "det_clock.h"
+#include "abi_bridge.h"
+#include "memory.h"
+#include "hle_stubs.h"
+#include "ppc_runtime.h"
+#include "fiber_manager.h"
+#include "save_state.h"
+#include "standalone_save_state.h"
+#include "runtime_log.h"
+#include "os_internal.h"
+
+// Time the guest CPU sat in the idle loop below (no thread runnable), since start: vi.cpp's slow-frame log tells a
+// frame that waited (for the next retrace, the disc, the audio worker) from one whose game code ran long.
+std::atomic<uint64_t> g_schedulerIdleNanos{0};
+
+namespace {
+void LinkMutexToThread(uint32_t threadPtr, uint32_t mutexPtr)
+{
+    const uint32_t tail = ::Memory::Read32(threadPtr + kThreadMutexTailOffset);
+    if (tail == 0) {
+        ::Memory::Write32(threadPtr + kThreadMutexQueueOffset, mutexPtr);
+    } else {
+        ::Memory::Write32(tail + kMutexThreadNextOffset, mutexPtr);
+    }
+
+    ::Memory::Write32(mutexPtr + kMutexThreadPrevOffset, tail);
+    ::Memory::Write32(mutexPtr + kMutexThreadNextOffset, 0);
+    ::Memory::Write32(threadPtr + kThreadMutexTailOffset, mutexPtr);
+}
+
+void UnlinkMutexFromThread(uint32_t threadPtr, uint32_t mutexPtr)
+{
+    UnlinkGuestListNode(mutexPtr, kMutexThreadNextOffset, kMutexThreadPrevOffset,
+                        threadPtr + kThreadMutexQueueOffset, threadPtr + kThreadMutexTailOffset);
+}
+
+// Tail-enqueue `thread` on the run queue for `priority` and record which queue
+// it is linked into. Marking the priority pending is a separate step because
+// OSWakeupThread runs its fiber bookkeeping between the two.
+void LinkThreadOnRunQueue(uint32_t thread, int32_t priority)
+{
+    const uint32_t queueEntry = kThreadQueueArrayAddr + static_cast<uint32_t>(priority) * 8u;
+    const uint32_t tail = ::Memory::Read32(queueEntry + 4u);
+    if (tail == 0) {
+        ::Memory::Write32(queueEntry, thread);
+    } else {
+        ::Memory::Write32(tail + kThreadNextOffset, thread);
+    }
+    ::Memory::Write32(thread + kThreadPrevOffset, tail);
+    ::Memory::Write32(thread + kThreadNextOffset, 0);
+    ::Memory::Write32(queueEntry + 4u, thread);
+    ::Memory::Write32(thread + kThreadQueueOffset, queueEntry);
+}
+
+// Publish `priority` in the scheduler pending mask and request a reschedule.
+void MarkRunQueuePending(int32_t priority)
+{
+    const uint32_t pending = ::Memory::Read32(kSchedulerPendingFlagAddr);
+    ::Memory::Write32(kSchedulerPendingFlagAddr, pending | (1u << (31 - priority)));
+    ::Memory::Write32(kSchedulerReschedCounterAddr, 1);
+}
+
+// Pop `head` off the front of the thread queue whose head/tail slots are
+// `queueAddr`/`queueAddr + 4`, returning the new head.
+uint32_t PopThreadQueueHead(uint32_t queueAddr, uint32_t head)
+{
+    const uint32_t next = ::Memory::Read32(head + kThreadNextOffset);
+    if (next == 0) {
+        ::Memory::Write32(queueAddr + 4u, 0);
+    } else {
+        ::Memory::Write32(next + kThreadPrevOffset, 0);
+    }
+    ::Memory::Write32(queueAddr, next);
+    return next;
+}
+
+void PromoteThreadPriority(uint32_t threadPtr, int32_t priority)
+{
+    while (threadPtr != 0) {
+        if (static_cast<int32_t>(::Memory::Read32(threadPtr + kThreadSuspendOffset)) > 0) {
+            return;
+        }
+
+        const int32_t currentPriority =
+            static_cast<int32_t>(::Memory::Read32(threadPtr + kThreadPriorityOffset));
+        if (currentPriority <= priority) {
+            return;
+        }
+
+        threadPtr = SetThreadEffectivePriority(threadPtr, priority);
+    }
+}
+} // namespace
+
+extern "C" void OSWakeupThread_HLE_801139d0(CpuContext* ctx);
+extern "C" void OSSleepThread_HLE_801138e0(CpuContext* ctx);
+
+// Deterministic idle (det_clock.h): deliver everything due at the current virtual instant, in a
+// fixed order, and if that made no thread runnable, wait for real time to reach the next event and
+// move the timeline there. Every device therefore wakes its threads at the same points.
+static void DeterministicIdleStep(CpuContext* cpu)
+{
+    ProcessSleepTimers(cpu);
+    Audio_HLE_Poll(cpu);
+    if (::Memory::Read32(kSchedulerPendingFlagAddr) != 0) {
+        return;
+    }
+    VI_HLE_PollRetrace(cpu);
+    ProcessAlarmQueue(cpu, 8);
+    if (::Memory::Read32(kSchedulerPendingFlagAddr) != 0) {
+        return;
+    }
+
+    const uint64_t now = DetClock::Now();
+    uint64_t next = std::min({VI_HLE_DetNextRetraceTicks(), Audio_HLE_DetNextEventTicks(), NextSleepTimerTicks(),
+                              NextAlarmTicks()});
+    // Before VIInit nothing may be scheduled yet: creep forward a millisecond at a time. An event
+    // that is due but could not be delivered this pass still moves time on by a tick.
+    constexpr uint64_t kMaxStep = TimeBaseContract::kTicksPerSecond / 1000;
+    if (next == DetClock::kNever) {
+        next = now + kMaxStep;
+    } else if (next <= now) {
+        next = now + 1;
+    }
+    DetClock::PaceTo(next);
+    DetClock::AdvanceTo(next);
+}
+
+static void TryInvokeSwitchCallback(uint32_t oldCtx, uint32_t newCtx, CpuContext* cpu)
+{
+    try {
+        const uint32_t callbackAddr = ::Memory::Read32(kSwitchThreadCallbackPtrAddr);
+        if (callbackAddr == 0) {
+            return;
+        }
+
+        if (TranslatedFunctionRegistry::FindByAddressPtr(callbackAddr)) {
+            CpuContext* ctx = cpu ? cpu : &GetPersistentCpuContext();
+            ctx->gpr[3] = oldCtx;
+            ctx->gpr[4] = newCtx;
+            InvokeIndirectCpu(callbackAddr, ctx);
+            return;
+        }
+
+        RT_LOG(RT_TAG_OS) << "__OSThreadInit: switchThreadCallback 0x" << std::hex << callbackAddr
+                  << std::dec << " not registered; skipping" << std::endl;
+    } catch (const ::Memory::AccessViolation& e) {
+        RT_LOG(RT_TAG_OS) << "__OSThreadInit: failed to read callback pointer (0x" << std::hex
+                  << e.address() << std::dec << ")" << std::endl;
+    }
+}
+
+// Forward declare for SelectThread to use
+extern "C" void OS__SetCurrentContext_8010aca0(uint32_t contextAddr);
+extern "C" void func_8010AD10(CpuContext* ctx);
+
+// ============================================================================
+// SelectThread HLE - Thread Scheduler (Fiber-Aware)
+// Address: 0x801B4EA0. Picks the next runnable thread; switches via Windows
+// Fibers instead of blocking InvokeIndirectJump.
+// ============================================================================
+
+static void SelectThreadSwitch(CpuContext* cpu, uint32_t runningContext, bool resumeInIdle);
+static void RescheduleUntilChosen(CpuContext* cpu, uint32_t self);
+
+extern "C" void SelectThread_80112b90(CpuContext* ctx)
+{
+    CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
+    const uint32_t forceSwitch = cpu->gpr[3];
+
+    ProcessSleepTimers(cpu);
+
+    // Read scheduler state
+    const uint32_t idleFlag = ::Memory::Read32(kSchedulerIdleFlagAddr);
+    if (idleFlag >= 1) {
+        // Scheduler is idle/disabled, return 0
+        cpu->gpr[3] = 0;
+        return;
+    }
+
+    // Get current context
+    const uint32_t currentContext = ::Memory::Read32(kOSCurrentContextAddr);
+    const uint32_t runningContext = ::Memory::Read32(kOSRunningContextAddr);
+    
+    // Early exit if no thread system is initialized yet
+        // (both current and running contexts are 0)
+        if (currentContext == 0 && runningContext == 0) {
+            cpu->gpr[3] = 0;
+            return;
+        }
+
+    if (currentContext != runningContext) {
+        // Not in the running thread's context, return 0
+        cpu->gpr[3] = 0;
+        return;
+    }
+
+    // Check if we have a running thread
+    if (runningContext != 0) {
+        // Read thread state at offset 0x2C8 (state field)
+        const uint16_t threadState = ::Memory::Read16(runningContext + 0x2C8u);
+        
+        if (threadState == 2) { // RUNNING state
+            // Check if we need to reschedule
+            const uint32_t reschedPending = ::Memory::Read32(kSchedulerPendingFlagAddr);
+            
+            if (forceSwitch == 0) {
+                // Get thread priority from offset 0x2D0
+                const int32_t threadPriority = static_cast<int32_t>(::Memory::Read32(runningContext + 0x2D0u));
+                
+                // countLeadingZeros equivalent - find highest priority pending
+                uint32_t pendingClz = 32;
+                if (reschedPending != 0) {
+                    pendingClz = PPC_Cntlzw(reschedPending);
+                }
+                
+                if (threadPriority <= static_cast<int32_t>(pendingClz)) {
+                    // Current thread has higher or equal priority, don't switch
+                    cpu->gpr[3] = 0;
+                    return;
+                }
+            }
+            
+            // Mark thread as READY (state = 1)
+            ::Memory::Write16(runningContext + 0x2C8u, 1);
+            
+            // Add running thread back to its priority queue
+            const int32_t prio = static_cast<int32_t>(::Memory::Read32(runningContext + 0x2D0u));
+            LinkThreadOnRunQueue(runningContext, prio);
+            MarkRunQueuePending(prio);
+        }
+
+        // If the context is not preemptible, save it and return when it resumes.
+        // This matches OSSaveContext semantics used by the original scheduler.
+        try {
+            const uint16_t modeFlags = ::Memory::Read16(runningContext + 0x1A2u);
+            if ((modeFlags & 0x0002u) == 0) {
+                cpu->gpr[3] = runningContext;
+                func_8010AD10(cpu);
+                if (cpu->gpr[3] != 0) {
+                    cpu->gpr[3] = 0;
+                    return;
+                }
+            }
+        } catch (const ::Memory::AccessViolation& e) {
+            RT_LOG(RT_TAG_OS) << "SelectThread: failed to read mode flags @0x"
+                      << std::hex << e.address() << std::dec << std::endl;
+        }
+    }
+
+    SelectThreadSwitch(cpu, runningContext, false);
+    RescheduleUntilChosen(cpu, runningContext);
+}
+
+// Save states: a restored thread that was in the idle loop when the state was taken continues there.
+extern "C" void SelectThread_ResumeIdle(CpuContext* cpu, uint32_t runningContext)
+{
+    SelectThreadSwitch(cpu, runningContext, true);
+    RescheduleUntilChosen(cpu, runningContext);
+}
+
+// A guest thread whose entry function returns hands control straight back to the scheduler fiber (FiberProc /
+// ResumeProc -> FinishGuestThread -> Switch(s_schedulerFiber)), and that fiber is also the default thread's. So the
+// default thread comes back out of whatever SelectThread it was parked in with no thread running (OS running context
+// 0), not because it was chosen. Returning to its caller would run it while the OS still has it waiting or
+// suspended: OSSleepTicks then cancels the alarm that was to resume it, and after its next wait it is never
+// scheduled again (Other M's main thread polling a skipped cutscene's movie thread with 1 ms sleeps, 2026-11-06;
+// a parked OSSleepThread only survived through its "could not switch away" fallback). Keep scheduling here, as the
+// exiting thread's own SelectThread does on hardware, until this thread is the one chosen to run.
+static void RescheduleUntilChosen(CpuContext* cpu, uint32_t self)
+{
+    if (self == 0 || !Fiber::GuestFiberManager::IsInitialized()) {
+        return;
+    }
+    static int reported = 0;
+    while (::Memory::Read32(kOSRunningContextAddr) == 0 && Fiber::GuestFiberManager::OwnsRunningSchedulerFiber(self)) {
+        if (ThreadStateIsTerminated(::Memory::Read16(self + kThreadStateOffset))) {
+            return;
+        }
+        if (reported < 20) {
+            ++reported;
+            RT_LOGF(RT_TAG_OS, "[sched] thread %08X was handed the scheduler fiber back with no thread running "
+                               "(state %u, suspend %d): scheduling again\n",
+                    self, ::Memory::Read16(self + kThreadStateOffset),
+                    static_cast<int32_t>(::Memory::Read32(self + kThreadSuspendOffset)));
+        }
+        // This fiber is still this thread's: a switch away saves its registers into its record, and the switch that
+        // brings it back (SwitchToThread(self)) restores them.
+        Fiber::GuestFiberManager::SetCurrentGuestThread(self);
+        SelectThreadSwitch(cpu, 0, false);
+    }
+}
+
+// The second half of SelectThread: idle until a thread is runnable, then switch to it. A restored
+// state enters with `resumeInIdle`, at the idle loop's condition (where frontend frames suspend).
+static void SelectThreadSwitch(CpuContext* cpu, uint32_t runningContext, bool resumeInIdle)
+{
+    // Check if there are any runnable threads
+    uint32_t reschedPending = ::Memory::Read32(kSchedulerPendingFlagAddr);
+    if (resumeInIdle || reschedPending == 0) {
+        if (!resumeInIdle) {
+            // No threads to run - enter idle loop
+            TryInvokeSwitchCallback(runningContext, 0, cpu);
+            ::Memory::Write32(kOSRunningContextAddr, 0);
+
+            // Set current context to idle thread context
+            OS__SetCurrentContext_8010aca0(kIdleThreadContextAddr);
+        }
+
+        struct IdleTimer {
+            std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
+            ~IdleTimer() {
+                g_schedulerIdleNanos.fetch_add(static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                   std::chrono::steady_clock::now() - start).count()),
+                                               std::memory_order_relaxed);
+            }
+        } idleTimer;
+        bool interruptsEnabled = resumeInIdle;
+        while (true) {
+            // Enable interrupts and idle until something becomes runnable.
+            if (!interruptsEnabled) OS__EnableInterrupts_8010f180();
+            interruptsEnabled = false;
+
+            while (::Memory::Read32(kSchedulerPendingFlagAddr) == 0) {
+                // The windowed game's save states (standalone_save_state.cpp): a load does not return here.
+                if (StandaloneState::Armed()) StandaloneState::AtIdle(cpu);
+                if (DetClock::Enabled()) {
+                    DeterministicIdleStep(cpu);
+                    continue;
+                }
+                ProcessSleepTimers(cpu);
+                // Dolphin models DSP audio DMA as an independent 4 kHz timing
+                // event.  Poll it from the guest scheduler instead of batching
+                // completed 3 ms DMA blocks at VI retrace cadence.  A completed
+                // block wakes SoundThread and sets the scheduler pending mask.
+                Audio_HLE_Poll(cpu);
+                if (::Memory::Read32(kSchedulerPendingFlagAddr) != 0) {
+                    break;
+                }
+                VI_HLE_PollRetraceIdle(cpu);  // nothing runnable: the guest waits (fast-forward, guest_clock.h)
+                if (Fiber::GuestFiberManager::IsInitialized()) {
+                    Fiber::GuestFiberManager::ProcessTimerEvents(cpu);
+                }
+                ProcessAlarmQueue(cpu, 8);
+                if (::Memory::Read32(kSchedulerPendingFlagAddr) != 0) {
+                    break;
+                }
+                VI_HLE_WaitForNextRetracePoll();
+            }
+
+            OS__DisableInterrupts_8010f160();
+            reschedPending = ::Memory::Read32(kSchedulerPendingFlagAddr);
+            if (reschedPending != 0) {
+                break;
+            }
+        }
+
+        OS__ClearContext_8010aee0(kIdleThreadContextAddr);
+    }
+
+    // Clear reschedule counter
+    ::Memory::Write32(kSchedulerReschedCounterAddr, 0);
+
+    // Note: When the current thread is already in WAITING state (not RUNNING),
+    // we skip the preemptibility check entirely, matching the original OS behavior.
+    // The preemptibility check only applies when the thread is RUNNING and we're
+    // deciding whether to preempt it.
+
+    // Find highest priority thread
+    uint32_t pendingMask = ::Memory::Read32(kSchedulerPendingFlagAddr);
+    
+    if (pendingMask == 0) {
+        // No runnable threads in the run queue at this point
+        cpu->gpr[3] = 0;
+        return;
+    }
+    
+    uint32_t priorityLevel = 0;
+    uint32_t queueEntry = 0;
+    uint32_t nextThread = 0;
+    while (true) {
+        priorityLevel = PPC_Cntlzw(pendingMask);
+        queueEntry = kThreadQueueArrayAddr + (priorityLevel * 8);
+        nextThread = ::Memory::Read32(queueEntry);
+
+        if (nextThread == 0) {
+            RT_LOG(RT_TAG_OS) << "SelectThread: ERROR - pending bit set but no thread in queue!" << std::endl;
+            const uint32_t mask = ~(1u << (31 - priorityLevel));
+            ::Memory::Write32(kSchedulerPendingFlagAddr, pendingMask & mask);
+            pendingMask = ::Memory::Read32(kSchedulerPendingFlagAddr);
+            if (pendingMask == 0) {
+                cpu->gpr[3] = 0;
+                return;
+            }
+            continue;
+        }
+
+        const uint16_t state = ::Memory::Read16(nextThread + kThreadStateOffset);
+        if (ThreadStateIsTerminated(state) || Fiber::GuestFiberManager::IsTerminated(nextThread)) {
+            RemoveThreadFromQueue(nextThread);
+            pendingMask = ::Memory::Read32(kSchedulerPendingFlagAddr);
+            if (pendingMask == 0) {
+                cpu->gpr[3] = 0;
+                return;
+            }
+            continue;
+        }
+
+        break;
+    }
+
+    // Remove thread from queue head
+    const uint32_t threadNext = PopThreadQueueHead(queueEntry, nextThread);
+
+    // If queue is now empty, clear the pending bit
+    if (threadNext == 0) {
+        const uint32_t mask = ~(1u << (31 - priorityLevel));
+        ::Memory::Write32(kSchedulerPendingFlagAddr, pendingMask & mask);
+    }
+
+    // Clear thread's queue pointer
+    ::Memory::Write32(nextThread + 0x2DCu, 0);
+    
+    // Set thread to RUNNING state
+    ::Memory::Write16(nextThread + 0x2C8u, 2);
+
+    // Invoke switch callback
+    TryInvokeSwitchCallback(runningContext, nextThread, cpu);
+
+    // Update running context
+    ::Memory::Write32(kOSRunningContextAddr, nextThread);
+    
+    // Set as current context
+    OS__SetCurrentContext_8010aca0(nextThread);
+
+    // Use fiber-based context switch if available
+    if (Fiber::GuestFiberManager::IsInitialized()) {
+        uint32_t currentGuestThread = Fiber::GuestFiberManager::GetCurrentGuestThread();
+        
+        // If we don't have a current guest fiber but we DO have a running context,
+        // register the running context as the "main thread" fiber.
+        // This allows the main thread to participate in fiber switching.
+        if (currentGuestThread == 0 && runningContext != 0) {
+            if (!Fiber::GuestFiberManager::HasFiber(runningContext)) {
+                Fiber::GuestFiberManager::RegisterMainThreadAsFiber(runningContext, cpu);
+            }
+            // Whether we registered it or it already existed, use it as the current thread
+            currentGuestThread = runningContext;
+        }
+        
+        // Check if target thread has a fiber
+        if (!Fiber::GuestFiberManager::HasFiber(nextThread)) {
+            // No fiber for target thread - this can happen if the thread was created
+            // by translated code that didn't go through our HLE. Just continue.
+            cpu->gpr[3] = nextThread;
+            OS__LoadContext_8010ad90(cpu);
+            return;
+        }
+        
+        // If we still don't have a current guest thread (no running context),
+        // we can't do a proper fiber switch. Just return and let the caller handle it.
+        if (currentGuestThread == 0) {
+            Fiber::GuestFiberManager::SwitchToThread(nextThread, cpu);
+            return;
+        }
+        
+        // Perform the fiber switch!
+        Fiber::GuestFiberManager::SwitchToThread(nextThread, cpu);
+        // When we return here, we've been switched back
+        return;
+    }
+    
+    // Fallback to blocking InvokeIndirectJump (original behavior)
+    cpu->gpr[3] = nextThread;
+    OS__LoadContext_8010ad90(cpu);
+}
+
+PPC_NATIVE_OVERRIDE_VOID(80112B90, SelectThread_80112b90, (CpuContext* ctx), (ctx));
+
+// ============================================================================
+// OSWakeupThread HLE - drain a thread queue and mark threads runnable
+// Address: 0x801B5D80
+// ============================================================================
+static void WakeupThreadQueue(CpuContext* ctx, bool allowImmediateReschedule)
+{
+    CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
+    const uint32_t queueAddr = cpu->gpr[3];
+    if (queueAddr == 0) {
+        return;
+    }
+
+    const int32_t irqState = OS__DisableInterrupts_8010f160();
+    bool resched = false;
+    constexpr int kMaxWake = 256;
+    int woke = 0;
+
+    while (woke < kMaxWake) {
+        const uint32_t thread = ::Memory::Read32(queueAddr);
+        if (thread == 0) {
+            break;
+        }
+
+        PopThreadQueueHead(queueAddr, thread);
+
+        const uint16_t state = ::Memory::Read16(thread + kThreadStateOffset);
+        if (ThreadStateIsTerminated(state) || Fiber::GuestFiberManager::IsTerminated(thread)) {
+            ::Memory::Write32(thread + kThreadQueueOffset, 0);
+            ::Memory::Write32(thread + kThreadNextOffset, 0);
+            ::Memory::Write32(thread + kThreadPrevOffset, 0);
+            woke++;
+            continue;
+        }
+
+        // Mark READY
+        ::Memory::Write16(thread + 0x2C8u, 1);
+
+        const int32_t suspend = static_cast<int32_t>(::Memory::Read32(thread + 0x2CCu));
+        if (suspend < 1) {
+            int32_t prio = static_cast<int32_t>(::Memory::Read32(thread + 0x2D0u));
+            if (prio < 0) prio = 0;
+            if (prio > 31) prio = 31;
+            LinkThreadOnRunQueue(thread, prio);
+
+            if (Fiber::GuestFiberManager::IsInitialized()) {
+                if (thread == kDefaultThreadContextAddr && !Fiber::GuestFiberManager::HasFiber(thread)) {
+                    Fiber::GuestFiberManager::RegisterMainThreadAsFiber(thread, cpu);
+                }
+                Fiber::GuestFiberManager::ResumeGuestThread(thread);
+            }
+
+            MarkRunQueuePending(prio);
+            resched = true;
+        }
+
+        woke++;
+    }
+
+    if (woke >= kMaxWake) {
+        RT_LOG(RT_TAG_OS) << "OSWakeupThread: hit safety limit, possible queue cycle at 0x"
+                  << std::hex << queueAddr << std::dec << std::endl;
+    }
+
+    if (allowImmediateReschedule && resched && !VI_HLE_IsAdvancingRetrace()) {
+        cpu->gpr[3] = 0;
+        SelectThread_80112b90(cpu);
+    }
+
+    OS__RestoreInterrupts_8010f1a0(irqState);
+}
+
+extern "C" void OSWakeupThread_HLE_801139d0(CpuContext* ctx)
+{
+    WakeupThreadQueue(ctx, true);
+}
+
+void OS_HLE_WakeupThreadNoReschedule(CpuContext* ctx, uint32_t waitQueue)
+{
+    CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
+    const uint32_t savedR3 = cpu->gpr[3];
+    cpu->gpr[3] = waitQueue;
+    WakeupThreadQueue(cpu, false);
+    cpu->gpr[3] = savedR3;
+}
+
+PPC_NATIVE_OVERRIDE_VOID(801139D0, OSWakeupThread_HLE_801139d0, (CpuContext* ctx), (ctx));
+
+extern "C" void OSSleepThread_HLE_801138e0(CpuContext* ctx);
+
+extern "C" void OSLockMutex_HLE_80110e60(CpuContext* ctx)
+{
+    CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
+    // Save states: a thread parked here waiting for the mutex's owner continues after its sleep when restored.
+    // The record is copied first: another restored thread's resume reuses its storage.
+    bool resumedRunning = false;
+    const SaveState::YieldRecord* resumedRecord = SaveState::TakeYield(SaveState::YieldKind::Mutex, resumedRunning);
+    const std::optional<SaveState::YieldRecord> resumed =
+        resumedRecord ? std::optional<SaveState::YieldRecord>(*resumedRecord) : std::nullopt;
+    const CpuContext entry = resumed ? resumed->entry : *cpu;
+    const uint32_t mutexPtr = resumed ? resumed->extra[0] : cpu->gpr[3];
+    if (mutexPtr == 0) {
+        return;
+    }
+
+    const int32_t irqState = resumed ? static_cast<int32_t>(resumed->extra[1]) : OS__DisableInterrupts_8010f160();
+    std::optional<SaveState::YieldScope> yieldScope;
+    if (resumed) {
+        yieldScope.emplace(*resumed);
+        OS_HLE_SleepResume(cpu, resumedRunning, 0);  // the sleep ran with interrupts already off
+    }
+
+    try {
+        const uint32_t currentThread = ::Memory::Read32(kOSRunningContextAddr);
+        if (currentThread == 0) {
+            OS__RestoreInterrupts_8010f1a0(irqState);
+            return;
+        }
+        if (resumed) ::Memory::Write32(currentThread + kThreadMutexOffset, 0);  // as after the sleep below
+
+        while (true) {
+            const uint32_t ownerThread = ::Memory::Read32(mutexPtr + kMutexOwnerOffset);
+            if (ownerThread == 0) {
+                ::Memory::Write32(mutexPtr + kMutexOwnerOffset, currentThread);
+                const uint32_t count = ::Memory::Read32(mutexPtr + kMutexCountOffset);
+                ::Memory::Write32(mutexPtr + kMutexCountOffset, count + 1u);
+                LinkMutexToThread(currentThread, mutexPtr);
+                break;
+            }
+
+            if (ownerThread == currentThread) {
+                const uint32_t count = ::Memory::Read32(mutexPtr + kMutexCountOffset);
+                ::Memory::Write32(mutexPtr + kMutexCountOffset, count + 1u);
+                break;
+            }
+
+            ::Memory::Write32(currentThread + kThreadMutexOffset, mutexPtr);
+            const int32_t priority =
+                static_cast<int32_t>(::Memory::Read32(currentThread + kThreadPriorityOffset));
+            PromoteThreadPriority(ownerThread, priority);
+
+            if (!yieldScope) {
+                yieldScope.emplace(SaveState::YieldKind::Mutex, entry,
+                                   std::initializer_list<uint32_t>{mutexPtr, static_cast<uint32_t>(irqState)});
+            }
+            cpu->gpr[3] = mutexPtr;
+            OSSleepThread_HLE_801138e0(cpu);
+            ::Memory::Write32(currentThread + kThreadMutexOffset, 0);
+        }
+    } catch (const ::Memory::AccessViolation& e) {
+        LogMemoryError(RT_TAG_OS, "OSLockMutex", e);
+    }
+
+    OS__RestoreInterrupts_8010f1a0(irqState);
+}
+PPC_NATIVE_OVERRIDE_VOID(80110E60, OSLockMutex_HLE_80110e60, (CpuContext* ctx), (ctx));
+
+extern "C" void OSUnlockMutex_HLE_80110f40(CpuContext* ctx)
+{
+    CpuContext* cpu = ctx ? ctx : &GetPersistentCpuContext();
+    const uint32_t mutexPtr = cpu->gpr[3];
+    if (mutexPtr == 0) {
+        return;
+    }
+
+    const int32_t irqState = OS__DisableInterrupts_8010f160();
+
+    try {
+        const uint32_t currentThread = ::Memory::Read32(kOSRunningContextAddr);
+        if (currentThread == 0) {
+            OS__RestoreInterrupts_8010f1a0(irqState);
+            return;
+        }
+
+        if (::Memory::Read32(mutexPtr + kMutexOwnerOffset) == currentThread) {
+            const uint32_t count = ::Memory::Read32(mutexPtr + kMutexCountOffset) - 1u;
+            ::Memory::Write32(mutexPtr + kMutexCountOffset, count);
+            if (count == 0) {
+                UnlinkMutexFromThread(currentThread, mutexPtr);
+                ::Memory::Write32(mutexPtr + kMutexOwnerOffset, 0);
+
+                const int32_t effectivePriority =
+                    static_cast<int32_t>(::Memory::Read32(currentThread + kThreadPriorityOffset));
+                const int32_t basePriority =
+                    static_cast<int32_t>(::Memory::Read32(currentThread + kThreadBasePriorityOffset));
+                if (effectivePriority < basePriority) {
+                    const int32_t recomputedPriority = ComputeThreadEffectivePriority(currentThread);
+                    ::Memory::Write32(currentThread + kThreadPriorityOffset,
+                                      static_cast<uint32_t>(recomputedPriority));
+                }
+
+                cpu->gpr[3] = mutexPtr;
+                OSWakeupThread_HLE_801139d0(cpu);
+            }
+        }
+    } catch (const ::Memory::AccessViolation& e) {
+        LogMemoryError(RT_TAG_OS, "OSUnlockMutex", e);
+    }
+
+    OS__RestoreInterrupts_8010f1a0(irqState);
+}
+PPC_NATIVE_OVERRIDE_VOID(80110F40, OSUnlockMutex_HLE_80110f40, (CpuContext* ctx), (ctx));
+

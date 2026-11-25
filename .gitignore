@@ -1,0 +1,51 @@
+# Metroid: Other M recompilation - only sources, project files and scripts are tracked.
+# Game data (the user's own disc), the game's code, and everything built or downloaded stays out.
+*.rvz
+*.iso
+*.wbfs
+*.ciso
+*.gcz
+*.wia
+*.nkit
+*.gcm
+*.wad
+*.dol
+*.rel
+/Disc/
+/game/
+/toolchain/
+/build-logs/
+/autotest/
+/dist/
+/UserData/
+/Play/*
+/Play-test/
+!/Play/portable.txt
+
+# The developer's original Dolphin profile; the tracked copy is project/controls/Metroid.ini
+/Metroid.ini
+
+# The translated game, the native build, downloaded dependency sources and translator binaries
+/generated/
+/build/
+/build-*/
+/dependencies/
+/translator/**/bin/
+/translator/**/obj/
+/translator/**/TestResults/
+/aurora/build/
+__pycache__/
+*.pyc
+*.user
+*.suo
+/.vs/
+/.vscode/
+/.idea/
+.DS_Store
+
+# Local disc extractions, never published
+/ref/
+
+# Local working notes, never published
+CLAUDE.md
+/project/NOTES.md

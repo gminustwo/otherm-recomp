@@ -1,0 +1,21 @@
+# Code taps (recomp.yml translation.code_taps; translator Lifting/CodeTaps.cs): instruction sites where the runtime
+# may change one register's value while the game runs, so a mod that rewrites these instructions on a Wii (a Gecko
+# code writing an instruction, a replaced game.rel) works here too. runtime/src/code_patches.cpp says which rewrite
+# switches each tap on and what value it gives.
+#   <address> before <rN>: rN as the instruction reads it      <address> after <rN>: rN once the instruction wrote it
+# A tap's id is its position in this list: add new ones at the end, and translate again after any change.
+
+# Other M Redux, concentration at any energy: its Gecko code turns the branch at 0x805713D0 (rel_80571284 skips
+# concentrating while rel_805C4628 says no) into a nop. The tap answers the compare before that branch instead.
+805713CC before r3
+# Other M Redux, missiles in third person: its Gecko code writes "li r27, N" (the shot type rel_8054D73C stores) at
+# these four sites, and "li r0, 1" over the load of the stored shot type in rel_8054E304.
+8054D998 after r27
+8054D9AC after r27
+8054D9CC after r27
+8054D9F4 after r27
+8054E368 after r0
+# Other M Redux, the cutscene suit follows the suit: its game.rel replaces 0x805F6040-0x805F6107 of rel_805F602C (the
+# room-based choice of model 253) with a choice by the suit bits. The taps take the 253 branch and set the model.
+805F60FC before r0
+805F6104 after r3

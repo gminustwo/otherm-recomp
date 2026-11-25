@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<defs>
+<linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#14304d"/><stop offset="1" stop-color="#081420"/></linearGradient>
+<radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#3fd0ff" stop-opacity="0.35"/><stop offset="1" stop-color="#3fd0ff" stop-opacity="0"/></radialGradient>
+<linearGradient id="cyan" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#b8f2ff"/><stop offset="1" stop-color="#36bfef"/></linearGradient>
+<linearGradient id="orange" x1="0" y1="0" x2="0" y2="1">
+<stop offset="0" stop-color="#ffc15a"/><stop offset="1" stop-color="#ff8a1e"/></linearGradient>
+</defs>
+<rect x="8" y="8" width="496" height="496" rx="104" fill="url(#tile)"/>
+<rect x="8" y="8" width="496" height="496" rx="104" fill="none" stroke="#3fd0ff" stroke-opacity="0.45" stroke-width="6"/>
+<circle cx="256" cy="256" r="220" fill="url(#glow)"/>
+<g transform="translate(51.2 51.2) scale(0.8)"><path fill="url(#cyan)" d="M385.62,455.60 A238,238 0 0 1 126.38,455.60 L148.16,422.06 A198,198 0 0 0 363.84,422.06 Z M56.40,385.62 A238,238 0 0 1 56.40,126.38 L89.94,148.16 A198,198 0 0 0 89.94,363.84 Z M126.38,56.40 A238,238 0 0 1 385.62,56.40 L363.84,89.94 A198,198 0 0 0 148.16,89.94 Z M455.60,126.38 A238,238 0 0 1 455.60,385.62 L422.06,363.84 A198,198 0 0 0 422.06,148.16 Z M456.00,273.00 L426.00,256.00 L456.00,239.00 Z M239.00,456.00 L256.00,426.00 L273.00,456.00 Z M56.00,239.00 L86.00,256.00 L56.00,273.00 Z M273.00,56.00 L256.00,86.00 L239.00,56.00 Z"/><path fill="url(#cyan)" fill-rule="evenodd" d="M256,104 L408,256 L256,408 L104,256 Z M256,150 L362,256 L256,362 L150,256 Z"/><path fill="url(#orange)" d="M256,198 L314,256 L256,314 L198,256 Z"/></g>
+</svg>

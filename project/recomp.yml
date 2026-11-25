@@ -1,0 +1,54 @@
+schema_version: 1
+workspace_root: ..
+
+# Metroid: Other M, North America (R3OE01 rev 1): main.dol + files/rel/Release/game.rel (pre-linked, see inputs.rel).
+project:
+  id: otherm-r3oe01
+  display_name: "Metroid: Other M (USA)"
+  game_id: R3OE01
+  region: E
+
+memory:
+  base: 0x80000000
+  size: 0x01800000  # MEM1; game.rel is loaded from the MEM1 arena, so the image window needs nothing above it
+  # __init_registers (0x800064D0): lis/ori pairs for r2 and r13 (tools/ppcbin.py prints them).
+  sda_base: 0x803399E0
+  sda2_base: 0x8033AC80
+
+inputs:
+  dol:
+    path: game/main.dol
+    sha256: 8aa8be89f491ddc70ba52efb42171140184c0ad25fe056b0e08e8eaa67841a22
+  # game.rel pre-linked offline by project/tools/prelink_otherm_rel.py at the address the runtime pins
+  # (runtime/src/hle/otherm_rel_pin.cpp); game/otherm_rel_layout.json has the full layout.
+  rel:
+    path: game/otherm_linked.rel
+    load_address: 0x8052B280
+
+translation:
+  entry_points:
+    - 0x80006310  # __start
+    - 0x805AF514  # game.rel _prolog (layout "prolog")
+    - 0x805AF560  # game.rel _epilog
+    - 0x805AF5A8  # game.rel _unresolved
+  # No decompilation exists: project/tools/gen_function_map.py derives the starts from the binaries
+  # (calls, data pointers, address pairs, prologues after terminators) and names CodeWarrior's save/restore thunks.
+  function_map:
+    path: project/MAP.txt
+  allow_unsupported_instructions: false
+  # Sites where the runtime may change a register's value, for mods that rewrite the game's instructions
+  # (project/code_taps.txt, runtime/src/code_patches.cpp).
+  code_taps: project/code_taps.txt
+
+runtime:
+  # The runtime's native overrides (runtime/src) are registered at Other M's addresses; the game's own overrides
+  # live in runtime/src/hle/otherm_*.cpp.
+  native_registration_root: runtime/src
+  native_abi_directories:
+    - runtime/src/hle/gx
+
+output:
+  root: generated
+  functions: functions
+  runtime_config: RuntimeConfig.h
+  data_initializer: data_sections_init.cpp
