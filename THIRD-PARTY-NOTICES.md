@@ -116,7 +116,8 @@ Source: <https://github.com/higan-emu/libco>. Full license text:
 ## Fetched at build time and redistributed in release builds
 
 These are pinned in `aurora/extern/CMakeLists.txt`, `aurora/CMakeLists.txt`,
-`aurora/cmake/AuroraDawnProvider.cmake`, and (for Mbed TLS) `runtime/CMakeLists.txt`. They are
+`aurora/cmake/AuroraDawnProvider.cmake`, (for Mbed TLS) `runtime/CMakeLists.txt` and (for nod's C library on Android)
+`tools/build-android.ps1`. They are
 not stored in this repository; the build downloads them (`tools/fetch-dependencies.ps1` on Windows) - each
 fetch is pinned to an exact version with a checked SHA-256 - and links or redistributes the resulting
 binaries. Their license texts are included in the releases' `licenses/` folder.
@@ -141,6 +142,10 @@ binaries. Their license texts are included in the releases' `licenses/` folder.
 | Tracy Profiler | pinned commit | BSD-3-Clause | <https://github.com/wolfpld/tracy> |
 | C++/WinRT | - | MIT (Microsoft) | <https://github.com/microsoft/cppwinrt> |
 | nodtool (disc image extraction) | v2.0.0-alpha.10 | MIT OR Apache-2.0 | <https://github.com/encounter/nod> |
+| nod C library (`libnod.so`, Android: disc images) | v2.0.0-alpha.12 | MIT OR Apache-2.0 | <https://github.com/encounter/nod> |
+| bzip2 (inside `libnod.so`) | 1.0.8 | bzip2 license (BSD-style) | <https://sourceware.org/bzip2/> |
+| liblzma (XZ Utils, inside `libnod.so`) | 5.8.3 | 0BSD | <https://tukaani.org/xz/> |
+| Zstandard (inside `libnod.so`) | 1.5.7 | BSD-3-Clause | <https://github.com/facebook/zstd> |
 
 ### Dual-licensed components - elections made by this project
 

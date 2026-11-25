@@ -11,7 +11,9 @@ runtime/assets:
     rounded navy tile, as the menus colour things (hud_theme.cpp). The AppImage's icon (tools/package-linux.sh);
   - icon/otherm.ico: the same at 256-16 px, the Windows executable's icon (Explorer, the taskbar, the game window);
   - startup/emblem.png: the emblem's shape in white on transparent, 512 px, for the menus to tint
-    (runtime/src/hud_theme.cpp). CMake copies startup/ beside the executable.
+    (runtime/src/hud_theme.cpp). CMake copies startup/ beside the executable;
+  - and android/res/mipmap-*: the Android app's launcher icon (an adaptive icon: a navy back layer, the emblem in
+    front; the rounded tile for launchers without adaptive icons). --android writes only these.
 --steam-art <dir> <appid> also writes Steam's artwork for a non-Steam shortcut into <dir> (Steam's
 userdata/<user>/config/grid): <appid>.png (920x430), <appid>p.png (600x900) and <appid>_hero.png (1920x620), the
 emblem on a navy backdrop with a cyan glow, no text.
@@ -114,6 +116,61 @@ def backdrop_svg(width, height, emblem_size):
 """
 
 
+ANDROID_DENSITIES = [("mdpi", 1), ("hdpi", 1.5), ("xhdpi", 2), ("xxhdpi", 3), ("xxxhdpi", 4)]
+
+
+def android_background_svg():
+    """The Android adaptive icon's back layer: 108 dp, full bleed (the launcher cuts its own shape), navy and a glow."""
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+<defs>
+<linearGradient id="tile" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#14304d"/><stop offset="1" stop-color="#081420"/></linearGradient>
+<radialGradient id="glow" cx="0.5" cy="0.5" r="0.5"><stop offset="0" stop-color="#3fd0ff" stop-opacity="0.35"/><stop offset="1" stop-color="#3fd0ff" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="108" height="108" fill="url(#tile)"/>
+<circle cx="54" cy="54" r="40" fill="url(#glow)"/>
+</svg>
+"""
+
+
+def android_foreground_svg():
+    """Its front layer: the emblem inside the 66 dp circle every launcher shape keeps."""
+    return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 108 108">
+<defs>
+{GRADIENTS}
+</defs>
+{coloured_emblem(54 - 30, 54 - 30, 60)}
+</svg>
+"""
+
+
+ANDROID_ADAPTIVE_XML = """<?xml version="1.0" encoding="utf-8"?>
+<!-- tools/make-app-icon.py writes this and the pictures beside it. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@mipmap/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>
+"""
+
+
+def write_android_icons():
+    """android/res: the launcher icon, an adaptive icon (two layers) with the rounded tile as its fallback."""
+    res = os.path.join(ROOT, "android", "res")
+    for name, scale in ANDROID_DENSITIES:
+        folder = os.path.join(res, f"mipmap-{name}")
+        os.makedirs(folder, exist_ok=True)
+        render(app_icon_svg(), int(48 * scale), int(48 * scale), os.path.join(folder, "ic_launcher.png"))
+        layer = int(108 * scale)
+        render(android_background_svg(), layer, layer, os.path.join(folder, "ic_launcher_background.png"))
+        render(android_foreground_svg(), layer, layer, os.path.join(folder, "ic_launcher_foreground.png"))
+    folder = os.path.join(res, "mipmap-anydpi-v26")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "ic_launcher.xml"), "w", newline="\n") as f:
+        f.write(ANDROID_ADAPTIVE_XML)
+    print("wrote android/res/mipmap-*/ic_launcher*.png (%s) and mipmap-anydpi-v26/ic_launcher.xml"
+          % ", ".join(name for name, _ in ANDROID_DENSITIES))
+
+
 def render(svg_text, width, height, out_path):
     with tempfile.NamedTemporaryFile("w", suffix=".svg", delete=False) as f:
         f.write(svg_text)
@@ -141,6 +198,9 @@ def write_ico(pngs, out_path):
 def main():
     args = sys.argv[1:]
     steam_dir = appid = None
+    if args == ["--android"]:
+        write_android_icons()
+        return
     if args[:1] == ["--steam-art"] and len(args) == 3:
         steam_dir, appid = args[1], args[2]
     elif args:
@@ -167,6 +227,7 @@ def main():
     write_ico(pngs, os.path.join(icon_dir, "otherm.ico"))
     print("wrote icon/otherm_emblem.svg, otherm_app_icon.svg, otherm.png, otherm.ico (%s px), startup/emblem.png"
           % ", ".join(map(str, ICO_SIZES)))
+    write_android_icons()
 
     if steam_dir:
         os.makedirs(steam_dir, exist_ok=True)

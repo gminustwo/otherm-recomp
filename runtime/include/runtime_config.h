@@ -272,10 +272,16 @@ inline const std::optional<std::filesystem::path>& AppImageDirectory() {
     return dir;
 }
 
-// Where the player's own files beside the program go (Metroid.ini): the AppImage's folder, else the program's.
+// Where the player's own files beside the program go (Metroid.ini): the AppImage's folder, else the program's. On
+// Android the app's data folder: the program's folder there holds the runtime files the app unpacks, which an update
+// replaces.
 inline std::optional<std::filesystem::path> PlayerDirectory() {
+#if defined(__ANDROID__)
+    return RuntimePlatform::ApplicationDataDirectory(kApplicationDirectoryName);
+#else
     if (const auto& appImage = AppImageDirectory()) return appImage;
     return ExecutableDirectory();
+#endif
 }
 
 // The folder whose UserData holds the player's files: the AppImage's folder, else the program's (nullopt on macOS

@@ -316,6 +316,26 @@ else()
         list(APPEND SOURCES "${CMAKE_CURRENT_LIST_DIR}/src/platform/android/co_switch.S")
     endif()
 endif()
+# src/android/: the app's side of the Android build (the Java activity's JNI calls, the disc image read through nod).
+if(NOT OTHERM_PLATFORM_ANDROID)
+    list(FILTER SOURCES EXCLUDE REGEX "/src/android/")
+endif()
+file(GLOB OTHERM_ANDROID_SOURCES CONFIGURE_DEPENDS "${CMAKE_CURRENT_LIST_DIR}/src/android/*.cpp")
+set_source_files_properties(${OTHERM_ANDROID_SOURCES} PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+# nod's C library (github.com/encounter/nod, MIT / Apache-2.0), built by tools/build-android.ps1: the app sets the game
+# up from the disc image the system's picker hands over, in every format, read through its file descriptor.
+set(OTHERM_LIBNOD_DIR "" CACHE PATH "Android: the folder with nod's include/nod.h and lib/libnod.so")
+if(OTHERM_PLATFORM_ANDROID)
+    if(NOT EXISTS "${OTHERM_LIBNOD_DIR}/include/nod.h" OR NOT EXISTS "${OTHERM_LIBNOD_DIR}/lib/libnod.so")
+        message(FATAL_ERROR "OTHERM_LIBNOD_DIR has no include/nod.h and lib/libnod.so: '${OTHERM_LIBNOD_DIR}' (tools/build-android.ps1 builds it)")
+    endif()
+    add_library(otherm_nod SHARED IMPORTED)
+    set_target_properties(otherm_nod PROPERTIES
+        IMPORTED_LOCATION "${OTHERM_LIBNOD_DIR}/lib/libnod.so"
+        IMPORTED_SONAME "libnod.so"
+        INTERFACE_INCLUDE_DIRECTORIES "${OTHERM_LIBNOD_DIR}/include")
+    add_library(otherm::nod ALIAS otherm_nod)
+endif()
 set(OTHERM_PLATFORM_SOURCE "${CMAKE_CURRENT_LIST_DIR}/src/platform/host_platform.cpp")
 set(OTHERM_BASE_PRODUCT_SOURCE "${CMAKE_CURRENT_LIST_DIR}/src/product/base_product.cpp")
 # The region-module loader is its own executable (cmake/PublicProducts.cmake, OTHERM_ENGINE_MODULE), not runtime code.

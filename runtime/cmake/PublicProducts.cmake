@@ -86,7 +86,7 @@ if(OTHERM_PLATFORM_WINDOWS)
 elseif(OTHERM_PLATFORM_LINUX)
     target_link_libraries(otherm_runtime_common PRIVATE otherm::libco ${CMAKE_DL_LIBS})
 elseif(OTHERM_PLATFORM_ANDROID)
-    target_link_libraries(otherm_runtime_common PRIVATE android log ${CMAKE_DL_LIBS})
+    target_link_libraries(otherm_runtime_common PRIVATE android log otherm::nod ${CMAKE_DL_LIBS})
 endif()
 
 if(OTHERM_PLATFORM_MACOS)
@@ -215,7 +215,7 @@ function(otherm_configure_product target)
         # objects call into. SDL's Android activity loads the product as libmain.so and runs its
         # exported SDL_main (runtime/src/main.cpp). 16 KiB pages keep it loadable on Android 15+
         # devices that use them.
-        target_link_libraries(${target} PRIVATE android log ${CMAKE_DL_LIBS})
+        target_link_libraries(${target} PRIVATE android log otherm::nod ${CMAKE_DL_LIBS})
         target_link_options(${target} PRIVATE "LINKER:-z,max-page-size=16384" "LINKER:--no-undefined")
         set_target_properties(${target} PROPERTIES OUTPUT_NAME main)
     endif()

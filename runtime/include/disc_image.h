@@ -1,4 +1,6 @@
 #pragma once
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -16,4 +18,10 @@ bool Probe(const std::filesystem::path& image, Info& info, std::string& error);
 // Writes sys/ and files/ under `outDir`; `progress(done, total)` after each file.
 bool Extract(const std::filesystem::path& image, const std::filesystem::path& outDir,
              const std::function<void(int, int)>& progress, std::string& error);
+// Reads `size` bytes of the game partition's decrypted data at `offset` (0: its boot.bin) into `out`; throws
+// std::runtime_error when it can't.
+using PartitionReader = std::function<void(int64_t offset, void* out, size_t size)>;
+// Extract's second half, from a game partition another reader decrypts (Android: nod, android/nod_disc.cpp).
+bool ExtractPartition(const PartitionReader& read, const std::filesystem::path& outDir,
+                      const std::function<void(int, int)>& progress, std::string& error);
 } // namespace DiscImage
