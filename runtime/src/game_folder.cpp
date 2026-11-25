@@ -3,6 +3,10 @@
 #include "disc_image.h"
 #include "runtime_config.h"
 #include "runtime_log.h"
+#if defined(__ANDROID__)
+#include "android_bridge.h"
+#include "nod_disc.h"
+#endif
 
 #include <SDL3/SDL_filesystem.h>
 
@@ -14,6 +18,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
+#include <functional>
 #include <mutex>
 #include <thread>
 #if !defined(_WIN32)
@@ -237,13 +242,19 @@ void Finish(bool ok, const std::string& message, const fs::path& root) {
     RT_LOGF(RT_TAG_RUNTIME, "[launcher] set-up %s after %.0f s: %s\n", ok ? "done" : "failed", g_status.seconds, message.c_str());
 }
 
-// Unpacks `image` into <game folder>/Disc/DATA. "" on success, else why not.
-std::string SetUpFromImage(const fs::path& image) {
+void ShowProgress(int done, int total) {
+    if (total > 0) g_fraction = float(done) / float(total);
+}
+
+// Unpacks a disc image into <game folder>/Disc/DATA. "" on success, else why not. `probe` and `extract` read the image
+// (`name` in messages, `from` in the log): a file through DiscImage or nodtool, or on Android the document the system's
+// picker handed over, through nod.
+std::string SetUpFrom(const std::string& name, const std::string& from,
+                      const std::function<bool(DiscImage::Info&, std::string&)>& probe,
+                      const std::function<bool(const fs::path&, std::string&)>& extract) {
     DiscImage::Info info;
     std::string error;
-    const bool nod = IsNodImage(image);
-    if (!(nod ? NodProbe(image, info, error) : DiscImage::Probe(image, info, error)))
-        return RuntimeConfigFile::PathToUtf8(image.filename()) + ": " + error;
+    if (!probe(info, error)) return name + ": " + error;
     if (info.id != kGameId)
         return "That is " + info.id + " (" + info.title + "), not Metroid: Other M for the USA (R3OE01).";
     if (info.revision != 1)
@@ -258,20 +269,8 @@ std::string SetUpFromImage(const fs::path& image) {
         return "Setting up needs about " + GigabytesText(kSpaceNeeded) + " free in " + RuntimeConfigFile::PathToUtf8(disc) +
                "; there is " + GigabytesText(space.available) + ".";
     RT_LOGF(RT_TAG_RUNTIME, "[launcher] setting up %s revision %d from %s into %s\n", info.id.c_str(), info.revision,
-            RuntimeConfigFile::PathToUtf8(image).c_str(), RuntimeConfigFile::PathToUtf8(target).c_str());
-    bool ok = false;
-    if (nod) {
-        {
-            std::lock_guard lock(g_mutex);
-            g_staging = staging;
-        }
-        ok = NodExtract(image, staging, error);
-    } else {
-        ok = DiscImage::Extract(image, staging, [](int done, int total) {
-            if (total > 0) g_fraction = float(done) / float(total);
-        }, error);
-    }
-    if (!ok) {
+            from.c_str(), RuntimeConfigFile::PathToUtf8(target).c_str());
+    if (!extract(staging, error)) {
         fs::remove_all(staging, ec);
         return "The disc could not be set up: " + error;
     }
@@ -279,6 +278,23 @@ std::string SetUpFromImage(const fs::path& image) {
     fs::rename(staging, target, ec);
     if (ec) return "The disc could not be set up: " + ec.message();
     return {};
+}
+
+std::string SetUpFromImage(const fs::path& image) {
+    const bool nod = IsNodImage(image);
+    return SetUpFrom(
+        RuntimeConfigFile::PathToUtf8(image.filename()), RuntimeConfigFile::PathToUtf8(image),
+        [&](DiscImage::Info& info, std::string& error) {
+            return nod ? NodProbe(image, info, error) : DiscImage::Probe(image, info, error);
+        },
+        [&](const fs::path& staging, std::string& error) {
+            if (!nod) return DiscImage::Extract(image, staging, &ShowProgress, error);
+            {
+                std::lock_guard lock(g_mutex);
+                g_staging = staging;
+            }
+            return NodExtract(image, staging, error);
+        });
 }
 
 } // namespace
@@ -316,10 +332,15 @@ std::string Problem(const fs::path& root) {
 }
 
 fs::path GameRoot() {
+#if defined(__ANDROID__)
+    // The app's own folder on shared storage (Android/data/<app>/files), where its saves and settings are too.
+    return RuntimeConfigFile::ApplicationDataDirectory();
+#else
     // An AppImage's program runs from its read-only mount: the game folder is the one holding the .AppImage file.
     if (const auto& appImage = RuntimeConfigFile::AppImageDirectory()) return *appImage;
     const fs::path engine = EngineDirectory();
     return engine.filename() == "engine" ? engine.parent_path() : engine;
+#endif
 }
 
 bool Ready() {
@@ -352,8 +373,13 @@ std::string Describe() {
         if (problem.empty()) return "Metroid: Other M (R3OE01) in " + RuntimeConfigFile::PathToUtf8(configured) + ".";
         return RuntimeConfigFile::PathToUtf8(configured) + ": " + problem;
     }
+#if defined(__ANDROID__)
+    return "Not set up yet: choose your disc image (USA, R3OE01, revision 1: .rvz, .iso, .wia, .gcz, .ciso or .wbfs). "
+           "It is set up once; you can delete the image afterwards.";
+#else
     return "Not set up yet: choose the folder that holds your disc image (USA, R3OE01, revision 1: .rvz, .iso, .wia, "
            ".gcz, .ciso or .wbfs). It is set up once; you can delete the image afterwards.";
+#endif
 }
 
 bool IsImage(const fs::path& p) {
@@ -409,6 +435,40 @@ void StartSetUp(const fs::path& source) {
         }
     }).detach();
 }
+
+#if defined(__ANDROID__)
+void StartSetUpFromDocument(const std::string& uri, const std::string& name) {
+    const std::string shown = name.empty() ? std::string("the picked file") : name;
+    {
+        std::lock_guard lock(g_mutex);
+        if (g_status.running) return;
+        g_status = SetUpStatus{};
+        g_status.running = true;
+        g_status.source = shown;
+        g_finishedRoot.clear();
+        g_staging.clear();
+        g_fraction = -1.0f;
+        g_expectedBytes = 0;
+        g_started = Clock::now();
+        g_nextMeasure = g_started;
+    }
+    // Opened here, on the start screen's thread (Java's), and read on the worker.
+    const int fd = AndroidBridge::OpenDocument(uri);
+    if (fd < 0) {
+        Finish(false, shown + " could not be opened.", {});
+        return;
+    }
+    std::thread([fd, shown] {
+        const std::string problem = SetUpFrom(
+            shown, "the picked file " + shown,
+            [fd](DiscImage::Info& info, std::string& error) { return NodDisc::Probe(fd, info, error); },
+            [fd](const fs::path& staging, std::string& error) { return NodDisc::Extract(fd, staging, &ShowProgress, error); });
+        close(fd);
+        if (problem.empty()) Finish(true, "Set up from " + shown + ". You can delete the image now.", GameRoot() / "Disc" / "DATA");
+        else Finish(false, problem, {});
+    }).detach();
+}
+#endif
 
 SetUpStatus Progress() {
     std::lock_guard lock(g_mutex);

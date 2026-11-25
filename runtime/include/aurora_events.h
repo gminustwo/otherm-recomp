@@ -17,6 +17,9 @@
 #if defined(_WIN32)
 #include <windows.h>
 #endif
+#if defined(__ANDROID__)
+#include "android_bridge.h"
+#endif
 
 // The window's surface changed size: DisplaySettings re-reads it at the next frame boundary.
 inline std::atomic_bool g_surfaceChangePending{false};
@@ -65,6 +68,10 @@ inline void Flush(bool force = false) {
     std::fflush(nullptr);
     ::TerminateProcess(::GetCurrentProcess(), 0);
     std::_Exit(EXIT_SUCCESS);
+#elif defined(__ANDROID__)
+    // Through the activity: a process that just ends while its window is up can be started again by Android.
+    std::fflush(nullptr);
+    AndroidBridge::Quit();
 #else
     std::_Exit(EXIT_SUCCESS);
 #endif

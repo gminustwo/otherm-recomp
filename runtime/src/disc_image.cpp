@@ -179,6 +179,21 @@ bool Probe(const fs::path& image, Info& info, std::string& error) {
 bool Extract(const fs::path& image, const fs::path& outDir, const std::function<void(int, int)>& progress, std::string& error) {
     try {
         Disc disc(image);
+        return ExtractPartition([&disc](int64_t off, void* dst, size_t size) { disc.ReadData(off, static_cast<uint8_t*>(dst), size); },
+                                outDir, progress, error);
+    } catch (const std::exception& e) {
+        error = e.what();
+        return false;
+    }
+}
+
+bool ExtractPartition(const PartitionReader& read, const fs::path& outDir, const std::function<void(int, int)>& progress,
+                      std::string& error) {
+    try {
+        struct {
+            const PartitionReader& read;
+            void ReadData(int64_t off, void* dst, size_t size) const { read(off, dst, size); }
+        } disc{read};
         uint8_t boot[0x440];
         disc.ReadData(0, boot, sizeof boot);
         const int64_t dolOff = int64_t(Be32(boot + 0x420)) << 2, fstOff = int64_t(Be32(boot + 0x424)) << 2,

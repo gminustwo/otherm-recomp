@@ -18,7 +18,8 @@ std::filesystem::path Find(const std::filesystem::path& path);
 std::string Problem(const std::filesystem::path& root);
 
 // The folder the game's own things go in: the one holding the .AppImage in an AppImage, else the program's (its
-// parent when the program sits in an engine/ folder). Disc/DATA is set up here.
+// parent when the program sits in an engine/ folder); on Android the app's folder on shared storage. Disc/DATA is set
+// up here.
 std::filesystem::path GameRoot();
 
 // Picks up the game's files without asking: the saved folder, else <game folder>/Disc/DATA (Windows: a "game" folder
@@ -40,6 +41,11 @@ FolderContents Scan(const std::filesystem::path& folder);
 // Sets the game up from `source`, one at a time: a disc image is unpacked on a worker thread into
 // <game folder>/Disc/DATA (a few minutes), an extracted game folder is used where it is. Progress() reports it.
 void StartSetUp(const std::filesystem::path& source);
+#if defined(__ANDROID__)
+// Android: sets the game up from the document the system's file picker returned (AndroidBridge::TakePickedDisc), read
+// through nod (every image format); `name` is its display name.
+void StartSetUpFromDocument(const std::string& uri, const std::string& name);
+#endif
 struct SetUpStatus {
     bool running = false;
     bool finished = false;  // the last set-up ended and TakeFinished() was not called since

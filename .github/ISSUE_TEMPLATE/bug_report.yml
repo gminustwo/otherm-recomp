@@ -22,8 +22,10 @@ body:
     attributes:
       label: Platform
       options:
+        - Windows (the zip)
         - Steam Deck (the AppImage)
         - Linux desktop (the AppImage)
+        - Android (the APK)
         - Windows (built from source)
         - Linux (built from source)
     validations:
@@ -56,6 +58,7 @@ body:
         **A bug report needs the log of the play session where the problem happened.** Every start of the game makes a new folder in `UserData/Logs`, named `base_<number>_pid<number>` (the first number counts seconds, so a later start has a bigger one), with the session's `console.log` inside. A later start never overwrites an earlier log, but it does add a newer folder: pick the folder of the session where the problem happened by its date and time, and drag its `console.log` into this box. Folders older than 4 days are deleted, so attach it soon.
         - **Steam Deck / Linux**: `UserData/Logs` in the folder that holds the AppImage
         - **Windows**: `UserData\Logs` next to `MetroidOtherM.exe`
+        - **Android**: `Logs` in `Android/data/io.github.gminustwo.otherm/files` (connect the device to a PC over USB to copy it)
 
         It lists your settings and what the game was doing in a slow frame, a freeze or a crash. It also shows folder paths, which can include your user name: edit those out if you like.
       placeholder: "Drop console.log here"
@@ -66,7 +69,7 @@ body:
     id: setup
     attributes:
       label: Your setup
-      description: Your controller (and whether you start the game through Steam), your display and the aspect ratio and frame rate you play at, a texture pack if you use one, your CPU and graphics card.
+      description: Your controller (and whether you start the game through Steam), your display and the aspect ratio and frame rate you play at, a texture pack if you use one, your CPU and graphics card (or on Android the phone or tablet's model).
       placeholder: "Steam Deck controls, started from Steam in Game Mode; 1280x800 at 60 fps; no texture pack"
 
   - type: textarea

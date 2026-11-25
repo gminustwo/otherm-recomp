@@ -13,7 +13,7 @@ runtime: the game's own code runs natively, with the Wii's graphics, sound and c
 **No game data is included**: you need your own disc image of the USA release (`R3OE01`, revision 1). The downloads
 contain the game's code in recompiled form, none of its data; the game's files are read from your disc image.
 
-Downloads for Windows (a zip) and Linux / the Steam Deck (an AppImage) are on the
+Downloads for Windows (a zip), Linux / the Steam Deck (an AppImage) and Android (an APK) are on the
 [Releases](https://github.com/gminustwo/otherm-recomp/releases) page; the game offers new versions itself and installs
 them in place.
 
@@ -85,6 +85,23 @@ Everything the game writes stays in its folder: `UserData\` (saves, settings, sa
 Everything the game writes stays in that folder: `UserData/` (saves, settings, save states, logs) and `Metroid.ini`
 (your controller layout, once you change it in Options > Controls). Moving the folder keeps all of it.
 
+## Installing on Android
+
+It needs a 64-bit ARM phone, tablet or handheld with Vulkan and Android 11 or newer, and a controller (Bluetooth or
+USB): there are no touch controls.
+
+1. Download `OtherMRecompiled-<version>-android-arm64.apk` from
+   [Releases](https://github.com/gminustwo/otherm-recomp/releases) and open it. The first time, Android asks you to
+   allow installing apps from your browser or file manager.
+2. Start Other M Recompiled. Pick **Play** (or **Game files**) and choose your disc image in Android's file picker:
+   `.rvz`, `.iso`, `.wia`, `.gcz`, `.ciso` or `.wbfs`, on the device, an SD card or a USB drive. The game sets itself
+   up from it, once (a few minutes, with a progress bar; about 7.5 GB free). Afterwards you can delete the image.
+
+Everything the game writes is in its folder on the device's storage, `Android/data/io.github.gminustwo.otherm/files`:
+saves, settings (`Config.toml`), save states, logs, mods, `Metroid.ini` and the game's files (`Disc/DATA`). Android's
+own file managers don't show that folder; connect the device to a PC over USB to reach it. An update keeps it;
+uninstalling the app deletes it, so copy your saves first. Android's back button opens Options.
+
 ## The start screen
 
 Every start opens the start screen, in the style of the game's menus, before the game boots: **Play** starts the
@@ -143,6 +160,8 @@ have at hand:
   attach it soon. It's in:
   - Steam Deck / Linux: `UserData/Logs` in the folder that holds the AppImage
   - Windows: `UserData\Logs` next to `MetroidOtherM.exe`
+  - Android: `Logs` in `Android/data/io.github.gminustwo.otherm/files` (connect the device to a PC over USB to copy
+    it)
 
   It lists your settings and what the game was doing in a slow frame, a freeze or a crash. It also shows folder
   paths, which can include your user name: edit those out if you like.
@@ -181,11 +200,27 @@ bash tools/package-linux.sh --version v0.1.0   # dist/OtherMRecompiled-v0.1.0-x8
 
 `package-linux.sh` needs `mksquashfs`, `patchelf` and `curl`; it downloads the AppImage runtime and `nodtool` once.
 
+### Android
+
+After the Windows translation above, on Windows with the Android SDK (an NDK, build-tools and
+`platforms;android-35`), a JDK 17 or newer and Rust (`rustup`):
+
+```powershell
+# dist\OtherMRecompiled-v1.0.0-android-arm64.apk:
+powershell -ExecutionPolicy Bypass -File tools\build-android.ps1 -Version v1.0.0
+```
+
+It builds nod's C library once (the app reads disc images with it), compiles the game with the NDK into
+`build-android\`, then packs and signs the APK. The signing key is made on first use as
+`%USERPROFILE%\.android\otherm-release.jks`, its password beside it: keep both, since Android installs an update only
+over an app signed with the same key.
+
 | Folder | What it is |
 |---|---|
 | `translator` | PowerPC to C++ static recompiler (C#) |
 | `runtime` | The runtime and Wii SDK HLE, with the port's own features; Other M's own code is `runtime/src/hle/otherm_*.cpp` |
 | `aurora` | Aurora: Wii GX on WebGPU (Dawn), with the port's changes |
+| `android` | The Android app: its manifest, icons and the Java side (SDL's activity, the file picker, updates) |
 | `project` | This game: `recomp.yml`, function map and names, controls, research tools |
 | `tools` | Setup, build, packaging and toolchain scripts, `ppcbin.py` (DOL reader) |
 
@@ -196,7 +231,7 @@ bash tools/package-linux.sh --version v0.1.0   # dist/OtherMRecompiled-v0.1.0-x8
 - **Aurora** by Luke Street, MIT; Dawn, SDL3 and the other components in
   [`THIRD-PARTY-NOTICES.md`](THIRD-PARTY-NOTICES.md)
 - **[nod](https://github.com/encounter/nod)** by Luke Street (`nodtool`, which reads `.rvz` / `.wia` / `.gcz` images
-  for the start screen's set-up), MIT / Apache-2.0
+  for the start screen's set-up; on Android its C library reads every image format), MIT / Apache-2.0
 - **Dolphin Emulator**: DolphinTool and the signature database used to name SDK functions, GPL-2.0-or-later
 
 ## License

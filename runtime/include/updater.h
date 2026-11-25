@@ -4,7 +4,8 @@
 // Built-in updater. A packaged game has engine/version.txt ("v1.0.5"); at start the latest GitHub release is
 // checked in the background (curl, which Windows 10+ and Linux both ship). Install() downloads that release,
 // unpacks it, and hands over to a small script that copies it over the game folder once the game has quit, then
-// starts the game again. Saves, settings, mods and the disc are not in the download, so they are kept.
+// starts the game again. Saves, settings, mods and the disc are not in the download, so they are kept. On Android
+// Java does the HTTPS and Android's package installer replaces the app (android_bridge.h).
 namespace Updater {
 enum class State { Off, Checking, UpToDate, Available, Downloading, Failed };
 void Start();               // the background check, once (does nothing without version.txt or when turned off)

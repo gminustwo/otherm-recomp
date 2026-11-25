@@ -56,7 +56,10 @@
 #include <unistd.h>
 #endif
 #if defined(__ANDROID__)
+#include <android/log.h>
 #include <sys/system_properties.h>
+#include <SDL3/SDL_hints.h>
+#include "android_bridge.h"
 #endif
 
 #include "frame_input.h"
@@ -325,6 +328,9 @@ void WriteProcessTranscriptChunk(ProcessTranscriptState& state, const char* data
 
 void PumpTranscriptPipe(ProcessTranscriptState& state, int readFd, int mirrorFd) {
     std::array<char, 4096> buffer{};
+#if defined(__ANDROID__)
+    std::string pending;  // logcat takes whole lines
+#endif
     for (;;) {
 #if defined(_WIN32)
         const int bytesRead = _read(readFd, buffer.data(), static_cast<unsigned int>(buffer.size()));
@@ -355,6 +361,14 @@ void PumpTranscriptPipe(ProcessTranscriptState& state, int readFd, int mirrorFd)
         }
 
         WriteProcessTranscriptChunk(state, buffer.data(), static_cast<size_t>(bytesRead));
+#if defined(__ANDROID__)
+        // Android sends stderr nowhere: the lines go to logcat too (adb logcat -s OtherM).
+        pending.append(buffer.data(), static_cast<size_t>(bytesRead));
+        for (size_t end; (end = pending.find('\n')) != std::string::npos; pending.erase(0, end + 1)) {
+            pending[end] = '\0';
+            __android_log_write(ANDROID_LOG_INFO, "OtherM", pending.c_str());
+        }
+#endif
     }
 }
 
@@ -1440,6 +1454,7 @@ int RuntimeMain(int argc, char** argv) {
         if (!g_cpuSetNote.empty()) RT_LOGF(RT_TAG_RUNTIME, "%s\n", g_cpuSetNote.c_str());
 #endif
 #if defined(__ANDROID__)
+        RT_LOGF(RT_TAG_RUNTIME, "device: %s\n", AndroidBridge::DeviceDescription().c_str());
         if (const auto line = RuntimePlatform::PinCurrentThreadToFastCores(); !line.empty())
             RT_LOGF(RT_TAG_RUNTIME, "fast cores %s\n", line.c_str());
 #endif
@@ -1597,6 +1612,12 @@ int RuntimeMain(int argc, char** argv) {
         // aurora_initialize does; a Bluetooth Wii Remote paired before launch must be
         // visible on that first scan.
         WiiRemoteInput::ConfigureSdlHints(RuntimeConfigFile::WiiRemotesEnabled(true));
+#if defined(__ANDROID__)
+        // The game is played sideways, either way up; Android's back button or gesture opens Options instead of closing
+        // the app (settings_overlay.cpp).
+        SDL_SetHint(SDL_HINT_ORIENTATIONS, "LandscapeLeft LandscapeRight");
+        SDL_SetHint(SDL_HINT_ANDROID_TRAP_BACK_BUTTON, "1");
+#endif
 #if defined(__ANDROID__)
         // Graphics debugging on a phone without a rebuild: `adb shell setprop debug.otherm.gfx
         // validate,robust` reaches aurora's device setup as AURORA_GFX_FLAGS (webgpu/gpu.cpp).

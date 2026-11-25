@@ -27,6 +27,9 @@
 #else
 #include <unistd.h>
 #endif
+#if defined(__ANDROID__)
+#include "android_bridge.h"
+#endif
 
 namespace DolphinImport {
 namespace fs = std::filesystem;
@@ -355,6 +358,9 @@ void RestartGame() {
         RT_LOGF(RT_TAG_RUNTIME, "restart: could not start the game again (error %lu)\n", GetLastError());
     }
     TerminateProcess(GetCurrentProcess(), 0);
+#elif defined(__ANDROID__)
+    // The environment doesn't reach a new process there: RestartActivity starts the game past the start screen itself.
+    AndroidBridge::RestartApp();
 #else
     char exe[4096] = {};
     const ssize_t length = readlink("/proc/self/exe", exe, sizeof exe - 1);

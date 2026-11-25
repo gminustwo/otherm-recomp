@@ -24,6 +24,9 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
+#if defined(__ANDROID__)
+#include "android_bridge.h"
+#endif
 
 namespace fs = std::filesystem;
 
@@ -40,17 +43,27 @@ const std::string kDownload = kTestUrl ? std::string(kTestUrl) + "/"
 std::string AssetFor(const std::string& tag) {
 #if defined(_WIN32)
     return "OtherMRecompiled-" + tag + "-windows-x64.zip";
+#elif defined(__ANDROID__)
+    return "OtherMRecompiled-" + tag + "-android-arm64.apk";  // tools/build-android.ps1
 #else
     return "OtherMRecompiled-" + tag + "-x86_64.AppImage";
 #endif
 }
 
 std::atomic<State> g_state{State::Off};
+#if defined(__ANDROID__)
+// The downloaded APK, in the app's data folder until the next start deletes it.
+constexpr const char* kAndroidPackage = "update.apk";
+#endif
 std::mutex g_mutex;
 std::string g_current, g_latest;
 std::once_flag g_started;
 
 fs::path EngineDir() {
+#if defined(__ANDROID__)
+    // The runtime files the app unpacked (version.txt among them): there is no program folder.
+    if (const auto dir = RuntimeConfigFile::ExecutableDirectory()) return *dir;
+#endif
     const char* base = SDL_GetBasePath();
     fs::path dir = base ? fs::u8path(base) : fs::current_path();
     if (!dir.has_filename()) dir = dir.parent_path();  // SDL's base path ends in a separator
@@ -99,6 +112,12 @@ bool Newer(const std::string& latest, const std::string& current) {
 void Download();
 
 void Check() {
+#if defined(__ANDROID__)
+    // No curl there: Java's HTTPS.
+    std::string body;
+    const int status = AndroidBridge::HttpGet(kApi, "application/vnd.github+json", body);
+    const int code = status == 200 ? 0 : status;
+#else
     // UserData, not the program's folder: an AppImage's program folder is its read-only mount.
     const fs::path json = RuntimeConfigFile::ApplicationDataDirectory() / "update_check.json";
     std::error_code ec;
@@ -108,6 +127,7 @@ void Check() {
     const std::string body((std::istreambuf_iterator<char>(in)), {});
     in.close();
     fs::remove(json, ec);
+#endif
     const size_t key = body.find("\"tag_name\"");
     const size_t open = key == std::string::npos ? key : body.find('"', body.find(':', key) + 1);
     const size_t close = open == std::string::npos ? open : body.find('"', open + 1);
@@ -133,6 +153,25 @@ void Download() {
         std::lock_guard<std::mutex> lock(g_mutex);
         tag = g_latest;
     }
+#if defined(__ANDROID__)
+    // Android's package installer replaces the app (the same signing key): it asks the player, then ends this process.
+    // The player may say no: the update stays on offer.
+    {
+        const fs::path apk = RuntimeConfigFile::ApplicationDataDirectory() / kAndroidPackage;
+        std::error_code ec;
+        fs::remove(apk, ec);
+        const std::string path = RuntimeConfigFile::PathToUtf8(apk);
+        if (!AndroidBridge::Download(kDownload + tag + "/" + AssetFor(tag), path) || !AndroidBridge::InstallPackage(path)) {
+            RT_LOGF(RT_TAG_RUNTIME, "update download failed (%s)\n", AssetFor(tag).c_str());
+            fs::remove(apk, ec);
+            g_state = State::Failed;
+            return;
+        }
+        RT_LOGF(RT_TAG_RUNTIME, "update %s downloaded; Android's installer asks to install it\n", tag.c_str());
+        g_state = State::Available;
+        return;
+    }
+#endif
 #if !defined(_WIN32)
     // An AppImage replaces itself: the new image is downloaded beside it and renamed over it (the running one keeps
     // its open copy), so a Steam shortcut to the file keeps working; then it starts again.
@@ -262,6 +301,10 @@ void Download() {
 
 void Start() {
     std::call_once(g_started, [] {
+#if defined(__ANDROID__)
+        std::error_code ec;
+        fs::remove(RuntimeConfigFile::ApplicationDataDirectory() / kAndroidPackage, ec);  // installed (or not) by now
+#endif
         std::ifstream in(EngineDir() / "version.txt");
         std::getline(in, g_current);
         while (!g_current.empty() && (g_current.back() == '\r' || g_current.back() == ' ')) g_current.pop_back();

@@ -30,6 +30,10 @@ extern "C" uint8_t* aurora_load_png_rgba(const char* path, uint32_t* width, uint
 #include "virtual_remote.h"
 #include "controller_gate.h"
 #include "vulkan_probe.h"
+#if defined(__ANDROID__)
+#include "android_bridge.h"
+#include <SDL3/SDL_system.h>
+#endif
 
 #include <imgui.h>
 #include <SDL3/SDL_events.h>
@@ -1136,6 +1140,15 @@ void HandleEvents(const AuroraEvent* events) noexcept {
             g_optEvents |= kOptBack;
             ApplyInputBlockState();
         }
+#if defined(__ANDROID__)
+        // Android's back button or gesture (main.cpp keeps it from closing the app, SDL_HINT_ANDROID_TRAP_BACK_BUTTON):
+        // backs out of Options, and in game opens them.
+        if (!keysTaken && IsToggleKey(ev->sdl, SDL_SCANCODE_AC_BACK)) {
+            if (g_optOpen) g_optEvents |= kOptBack;
+            else RequestOptionsToggle();
+            ApplyInputBlockState();
+        }
+#endif
         if (IsMouseActivity(ev->sdl)) {
             g_lastMouseActivity = Clock::now();
         }
@@ -1523,10 +1536,22 @@ std::string Thousands(size_t n) {
 std::string DisplayPath(std::filesystem::path path) {
     return RuntimeConfigFile::PathToUtf8(path.make_preferred());
 }
+// Shows a folder or file in the system's file manager or editor. Android opens no app's own files for another app:
+// there the player is told where it is, to reach from a PC over USB.
+void OpenPath(const std::filesystem::path& path) {
+#if defined(__ANDROID__)
+    std::string text = RuntimeConfigFile::PathToUtf8(path);
+    if (const size_t shared = text.find("Android/data/"); shared != std::string::npos) text = text.substr(shared);
+    SDL_ShowAndroidToast(("From a PC over USB: " + text).c_str(), 1, -1, 0, 0);
+#else
+    SDL_OpenURL(("file:///" + RuntimeConfigFile::PathToUtf8(path)).c_str());
+#endif
+}
+
 void OpenFolder(const std::filesystem::path& folder) {
     std::error_code ec;
     std::filesystem::create_directories(folder, ec);
-    SDL_OpenURL(("file:///" + RuntimeConfigFile::PathToUtf8(folder)).c_str());
+    OpenPath(folder);
 }
 
 void StepVolume(int& percent, int dir, void (*apply)(float), bool (*save)(float)) {
@@ -2041,7 +2066,7 @@ std::vector<OptRow> OptionsRows(int tab) {
             }, code.note});
         }
         rows.push_back({"Open the cheats folder", "", [](int d) {
-            if (d == 0) SDL_OpenURL(("file:///" + ModRuntime::CheatFolder()).c_str());
+            if (d == 0) OpenPath(RuntimeConfigFile::PathFromUtf8(ModRuntime::CheatFolder()));
         }, "Put Gecko codes here as a Dolphin game .ini file (R3OE01.ini); they show up after a restart."});
     } else if (tab == kOptMods) {
         // Before the game boots (the start screen) the mods are not read yet, so a change applies at Play.
@@ -2181,8 +2206,7 @@ std::vector<OptRow> OptionsRows(int tab) {
         // The controller is read through the Dolphin-style profile beside the game (virtual_remote.cpp ProfileIntent).
         rows.push_back({"Controller: open Metroid.ini", "", [](int d) {
             if (d != 0) return;
-            if (const auto dir = RuntimeConfigFile::PlayerDirectory())
-                SDL_OpenURL(("file:///" + RuntimeConfigFile::PathToUtf8(*dir / "Metroid.ini")).c_str());
+            if (const auto dir = RuntimeConfigFile::PlayerDirectory()) OpenPath(*dir / "Metroid.ini");
         }, "The controller's buttons and sticks, in Dolphin's profile format. Save it, then pick Reload."});
         rows.push_back({"Controller: reload Metroid.ini", "", [](int d) {
             if (d == 0) VirtualRemote::ReloadProfile();
@@ -2260,6 +2284,17 @@ void LauncherBrowse(const std::filesystem::path& folder) {
     g_launcher.listed = false;
 }
 
+// Where the game's files come from: the folder browser, or on Android the system's file picker (an app reads shared
+// storage only through what the player picks there; LauncherUpdate takes the answer).
+void LauncherChooseGame() {
+#if defined(__ANDROID__)
+    RT_LOGF(RT_TAG_RUNTIME, "[launcher] the system's file picker\n");
+    AndroidBridge::PickDisc();
+#else
+    LauncherBrowse(GameFolder::GameRoot());
+#endif
+}
+
 void LauncherSetUp(const std::filesystem::path& source) {
     RT_LOGF(RT_TAG_RUNTIME, "[launcher] set up from %s\n", RuntimeConfigFile::PathToUtf8(source).c_str());
     GameFolder::StartSetUp(source);
@@ -2334,6 +2369,14 @@ OptRow ButtonRow(std::string label, std::string value, std::function<void(int)> 
     return row;
 }
 
+#if defined(__ANDROID__)
+constexpr const char* kChooseGameHelp = "The game is not set up yet: choose your disc image.";
+constexpr const char* kAnotherGameHelp = " A: another disc image.";
+#else
+constexpr const char* kChooseGameHelp = "The game is not set up yet: choose the folder that holds your disc image.";
+constexpr const char* kAnotherGameHelp = " A: another folder.";
+#endif
+
 std::vector<OptRow> LauncherStartRows() {
     std::vector<OptRow> rows;
     const bool ready = g_launcher.ready;
@@ -2347,14 +2390,14 @@ std::vector<OptRow> LauncherStartRows() {
         if (ModInstall::Installing().busy) return;
         if (ready) LauncherPlay();
         else if (!beside.empty()) LauncherSetUp(beside);
-        else LauncherBrowse(GameFolder::GameRoot());
+        else LauncherChooseGame();
     }, install.busy ? "Waits until " + install.name + " is installed (Mods shows its progress)." +
                           (g_launcherPlaysAfterInstall ? " The game starts when it is done." : "")
        : ready ? std::string("Starts the game.")
        : !beside.empty() ? "Sets the game up from " + FileName(beside) + " first (once, a few minutes), then Play starts it."
-                         : std::string("The game is not set up yet: choose the folder that holds your disc image.")));
-    rows.push_back(ButtonRow("Game files", ready ? "Ready" : "Not set up", [](int) { LauncherBrowse(GameFolder::GameRoot()); },
-                             ready ? g_launcher.describe + " A: another folder." : g_launcher.describe));
+                         : std::string(kChooseGameHelp)));
+    rows.push_back(ButtonRow("Game files", ready ? "Ready" : "Not set up", [](int) { LauncherChooseGame(); },
+                             ready ? g_launcher.describe + kAnotherGameHelp : g_launcher.describe));
     if (!ready && !beside.empty()) {
         rows.push_back(ButtonRow("Set up from " + FileName(beside), SizeText(beside), [beside](int) { LauncherSetUp(beside); },
                                  "Found beside the game: unpacks it into the game's folder, once (a few minutes)."));
@@ -2467,6 +2510,17 @@ void LauncherUpdate() {
         picked.swap(g_launcherPicked);
     }
     if (picked && !picked->empty()) LauncherBrowse(RuntimeConfigFile::PathFromUtf8(*picked));
+#if defined(__ANDROID__)
+    if (std::string uri, name; g_launcher.screen != LauncherScreen::SettingUp && AndroidBridge::TakePickedDisc(uri, name)) {
+        if (uri.empty()) {
+            RT_LOGF(RT_TAG_RUNTIME, "[launcher] the file picker was closed without a choice\n");
+        } else {
+            RT_LOGF(RT_TAG_RUNTIME, "[launcher] set up from the picked file %s\n", name.c_str());
+            GameFolder::StartSetUpFromDocument(uri, name);
+            LauncherGoTo(LauncherScreen::SettingUp);
+        }
+    }
+#endif
 }
 
 // The pages Options shows: its own, or the start screen's (START and the Options pages; the browser and the set-up
