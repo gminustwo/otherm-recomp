@@ -928,6 +928,10 @@ void WriteCrashArtifacts(std::string_view reason, std::string_view extraDetails,
 
 namespace {
 
+// aurora's last fatal message: aurora aborts right after it, and the crash file (crash_sigabrt.txt) names it, so the
+// reason is there even when the session log's last lines are not (GitHub #11 had only the crash file).
+char g_lastAuroraFatal[512] = {};
+
 void RuntimeAuroraLogCallback(AuroraLogLevel level, const char* module,
                               const char* message, unsigned int len) {
     const std::string_view moduleView = module != nullptr ? std::string_view(module) : std::string_view{};
@@ -935,6 +939,9 @@ void RuntimeAuroraLogCallback(AuroraLogLevel level, const char* module,
     std::cerr << "[aurora] [" << static_cast<int>(level) << "] [" << moduleView << "] "
               << messageView << std::endl;
     if (level == LOG_FATAL) {
+        std::snprintf(g_lastAuroraFatal, sizeof g_lastAuroraFatal, "aurora %.*s: %.*s",
+                      static_cast<int>(moduleView.size()), moduleView.data(), static_cast<int>(messageView.size()),
+                      messageView.data());
         ShowRuntimeFatalPopup("Aurora reported a fatal renderer error", messageView);
     }
 }
@@ -1328,7 +1335,7 @@ void AbortSignalHandler(int signum) {
         std::_Exit(EXIT_FAILURE);
     }
 
-    WriteFatalLogImpl("sigabrt");
+    WriteFatalLogImpl("sigabrt", g_lastAuroraFatal);
 
     std::fflush(stderr);
     std::fflush(stdout);
