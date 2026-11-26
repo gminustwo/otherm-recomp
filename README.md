@@ -39,6 +39,9 @@ them in place.
 - **Saves**: imports your Dolphin save.
 - **Cheats**: infinite energy and missiles, 360-degree movement, a minimap that faces north, and Gecko codes.
 - **Mods**: Riivolution packs and [Other M Redux](#mods), dropped into the mods folder as they are downloaded.
+- **Discord status**: while the Discord app runs on the same PC, your profile shows Other M, the area you are in
+  (Main Sector, Sector 1 and so on), whether a cutscene or movie is playing, and the time played. Options > Game >
+  Discord status turns it off.
 
 ## Mods
 

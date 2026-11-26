@@ -78,6 +78,7 @@ extern "C" void PAD_HLE_SetRumbleEnabled(bool enabled);
 #include <aurora/aurora.h>
 #include <aurora/gfx.h>
 #include "updater.h"
+#include "discord_presence.h"
 #include "mod_install.h"
 #include "hle/storage/riivolution.h"
 #include "mod_runtime.h"
@@ -1711,6 +1712,12 @@ std::vector<OptRow> OptionsRows(int tab) {
                 Updater::SetCheckEnabled(!Updater::CheckEnabled());
             }, "Look for a new version each time the game starts."});
         }
+#if !defined(__ANDROID__)
+        rows.push_back({"Discord status", OnOff(DiscordPresence::Enabled()), [](int) {
+            DiscordPresence::SetEnabled(!DiscordPresence::Enabled());
+        }, "Shows Other M, the area you are in and the time played on your Discord profile while the Discord app "
+           "runs on this PC."});
+#endif
         if (!g_launcher.active) {  // the start screen has this row on its START page
             rows.push_back({"Start screen", OnOff(RuntimeConfigFile::ShowLauncher(true)), [](int) {
                 RuntimeConfigFile::SetShowLauncher(!RuntimeConfigFile::ShowLauncher(true));
@@ -3338,6 +3345,8 @@ void BeginLauncher() noexcept {
 }
 
 bool LauncherActive() noexcept { return g_launcher.active; }
+
+bool LauncherSettingUp() noexcept { return g_launcher.active && g_launcher.screen == LauncherScreen::SettingUp; }
 
 void PlayWhenModsInstalled() noexcept { g_launcherPlaysAfterInstall = true; }
 

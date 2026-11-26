@@ -25,6 +25,8 @@ bool GamePauseRequested() noexcept;
 // up from the player's disc image, Quit; then the Options pages). vi.cpp's VI_HLE_RunLauncher draws it until Play.
 void BeginLauncher() noexcept;
 bool LauncherActive() noexcept;
+// The start screen is setting the game up from the player's disc image (its "Setting up" page).
+bool LauncherSettingUp() noexcept;
 // The start screen is up only to show dropped mod zips being unpacked (mod_install.h): it plays by itself after.
 void PlayWhenModsInstalled() noexcept;
 void NotifyStrapInputAccepted() noexcept;

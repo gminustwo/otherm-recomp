@@ -187,6 +187,8 @@ set_source_files_properties(${OTHERM_PPC_SEMANTIC_RUNTIME_SOURCES} PROPERTIES
 set_source_files_properties("${CMAKE_CURRENT_LIST_DIR}/src/guest_profiler.cpp" PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 # Other M's button prompts compile stb_truetype (static functions, STBTT_ macros); keep them out of the unity batches.
 set_source_files_properties("${CMAKE_CURRENT_LIST_DIR}/src/button_icons.cpp" PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
+# Discord Rich Presence includes <windows.h> (its pipe) and the socket headers; keep it out of the unity batches too.
+set_source_files_properties("${CMAKE_CURRENT_LIST_DIR}/src/discord_presence.cpp" PROPERTIES SKIP_UNITY_BUILD_INCLUSION ON)
 # Match the optimization policy of the translated callers as well as their FP policy.
 set_property(SOURCE "${CMAKE_CURRENT_LIST_DIR}/src/ppc_quantized.cpp" APPEND PROPERTY
     COMPILE_OPTIONS -O2 -fno-slp-vectorize)
