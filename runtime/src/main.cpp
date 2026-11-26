@@ -103,6 +103,8 @@ extern "C" int g_gxFrameCount;
 extern "C" const char* DVDResolveHostPathForTest(const char* dvdPath);
 bool OS_HLE_InterruptsEnabled() noexcept;
 void OthermBloomApply();  // hle/otherm_bloom.cpp: Options > Display > Bloom's code tap
+void OthermLanguageApply();  // hle/otherm_language.cpp: the language taps, before the game loads its fonts
+bool OthermLanguageSelfCheck();
 
 namespace {
 
@@ -1587,6 +1589,9 @@ int RuntimeMain(int argc, char** argv) {
             const bool gecko = ModRuntime::SelfCheck();
             RT_LOGF(RT_TAG_RUNTIME, "selftest: gecko codes %s\n", gecko ? "ok" : "FAILED");
             ok = ok && gecko;
+            const bool languages = OthermLanguageSelfCheck();
+            RT_LOGF(RT_TAG_RUNTIME, "selftest: languages %s\n", languages ? "ok" : "FAILED");
+            ok = ok && languages;
             if (const char* image = std::getenv("OTHERM_SELFTEST_IMAGE")) {  // a disc image: what the first-run setup sees
                 DiscImage::Info info;
                 std::string error;
@@ -1613,6 +1618,7 @@ int RuntimeMain(int argc, char** argv) {
         ModInstall::StartInstallingDroppedZips();
         ModRuntime::Load();
         OthermBloomApply();
+        OthermLanguageApply();
         if (const char* deterministic = std::getenv("OTHERM_DETERMINISTIC");
             deterministic != nullptr && std::string(deterministic) == "1") {
             DetClock::Enable();

@@ -23,3 +23,10 @@
 # glow over the scene, GXSetBlendMode(BLEND, ONE, ONE, CLEAR) at 0x80814E00 and two quads. The tap gives the source
 # factor ZERO, so those quads leave the picture as it is.
 80814DF4 after r4
+# Options > Game > Subtitles (runtime/src/hle/otherm_language.cpp): the subtitle manager rel_805B16F8 takes the text
+# language here (mr r28, r3 after fn_8013AA30) for the message_all.dat section it loads and its layout; the tap gives
+# it the subtitle language instead.
+805B1778 before r3
+# Japanese text or subtitles: fn_80137B44 picks the fonts by the text language it loads here (0: japanese_font, the
+# only one with kana and kanji); the tap gives 0 so the Japanese fonts load.
+80137D08 after r3
