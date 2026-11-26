@@ -128,6 +128,7 @@ cp "$app/usr/share/applications/otherm-recomp.desktop" "$app/otherm-recomp.deskt
 cp "$root/runtime/assets/icon/otherm.png" "$app/usr/share/icons/hicolor/512x512/apps/otherm-recomp.png"
 cp "$root/runtime/assets/icon/otherm.png" "$app/otherm-recomp.png"
 ln -s otherm-recomp.png "$app/.DirIcon"
+cp "$root/recomplauncher.json" "$app/recomplauncher.json"   # RecompLauncher reads /recomplauncher.json in the image
 
 # Files copied off /mnt come out executable: only the programs should be.
 find "$app" -type f -exec chmod 644 {} +
