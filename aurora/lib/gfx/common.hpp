@@ -353,7 +353,13 @@ void clear_caches() noexcept;
 namespace tex_palette_conv {
 struct ConvRequest;
 } // namespace tex_palette_conv
+namespace tex_blur {
+struct Request;
+} // namespace tex_blur
 void queue_palette_conv(tex_palette_conv::ConvRequest req);
+// A blur (tex_blur.hpp) run at the start of the current render pass, after its palette conversions: so after the
+// copy that ended the pass before, and before this pass samples anything.
+void queue_texture_blur(tex_blur::Request req);
 
 Range push_verts(const uint8_t* data, size_t length);
 template <typename T>

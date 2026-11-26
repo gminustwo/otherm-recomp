@@ -51,6 +51,7 @@ struct RuntimeUserConfig {
     // [video] shader_compilation: "ubershaders", "skip" or "wait" (what a draw does while its shader compiles)
     std::optional<std::string> shaderCompilation;
     std::optional<bool> disableCopyFilter;
+    std::optional<int32_t> bloomMode;  // [video] bloom: "on" (default), "native", "blurred", "off" (otherm_bloom.cpp)
     std::optional<std::string> upscaler;      // [video] upscaler: "off" or "fsr" (aurora webgpu/post.cpp)
     std::optional<float> fsrSharpness;        // [video] fsr_sharpness: 0..1
     // [video] dynamic_resolution: the render scale follows the GPU's load to keep 60 FPS (dynamic_resolution.cpp), up to
@@ -123,6 +124,10 @@ struct RuntimeUserConfig {
 };
 
 namespace RuntimeConfigFile {
+
+// [video] bloom (hle/otherm_bloom.cpp): the game's glow as it draws it, at the Wii's resolution, blurred, or none.
+inline constexpr int32_t kBloomOn = 0, kBloomNative = 1, kBloomBlurred = 2, kBloomOff = 3;
+inline constexpr const char* kBloomModeNames[] = {"on", "native", "blurred", "off"};
 
 // Narrow path strings are UTF-8 everywhere in the runtime; string() and the
 // char path constructor would use the ANSI codepage on Windows, which drops
@@ -553,6 +558,11 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
         value && (*value == "ubershaders" || *value == "skip" || *value == "wait"))
         config.shaderCompilation = *value;
     config.disableCopyFilter = FindConfigValue<bool>(document, "video", "disable_copy_filter");
+    if (auto value = FindConfigValue<std::string>(document, "video", "bloom")) {
+        for (int32_t mode = 0; mode < 4; ++mode) {
+            if (*value == kBloomModeNames[mode]) config.bloomMode = mode;
+        }
+    }
     if (auto value = FindConfigValue<std::string>(document, "video", "upscaler"); value && (*value == "off" || *value == "fsr"))
         config.upscaler = *value;
     if (auto value = FindConfigFloat(document, "video", "fsr_sharpness"); value && *value >= 0.0f && *value <= 1.0f)
@@ -798,6 +808,16 @@ inline bool SetSkipUnreadyPipelines(bool value) {
 inline bool SetDisableCopyFilter(bool value) {
     Mutable().disableCopyFilter = value;
     return WriteSetting("video", "disable_copy_filter", value ? "true" : "false");
+}
+
+// Options > Display > Bloom (hle/otherm_bloom.cpp): the game's glow around bright lights, a kBloom* mode.
+inline int32_t BloomMode() {
+    return Get().bloomMode.value_or(kBloomOn);
+}
+
+inline bool SetBloomMode(int32_t mode) {
+    Mutable().bloomMode = mode;
+    return WriteSetting("video", "bloom", FormatString(kBloomModeNames[mode >= 0 && mode < 4 ? mode : kBloomOn]));
 }
 
 inline bool SetShaderCompilation(const std::string& value) {
@@ -1409,6 +1429,9 @@ inline void LogLoadedConfig() {
             }
             if (config.disableCopyFilter) {
                 std::cout << " disable_copy_filter=" << (*config.disableCopyFilter ? "true" : "false");
+            }
+            if (config.bloomMode) {
+                std::cout << " bloom=" << kBloomModeNames[*config.bloomMode];
             }
             if (config.showFps) {
                 std::cout << " show_fps=" << (*config.showFps ? "true" : "false");

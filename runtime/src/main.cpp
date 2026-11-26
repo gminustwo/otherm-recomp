@@ -101,6 +101,7 @@ extern std::atomic_bool g_gamePausedForMenu;  // vi.cpp RunPausedFrames: Options
 extern "C" int g_gxFrameCount;
 extern "C" const char* DVDResolveHostPathForTest(const char* dvdPath);
 bool OS_HLE_InterruptsEnabled() noexcept;
+void OthermBloomApply();  // hle/otherm_bloom.cpp: Options > Display > Bloom's code tap
 
 namespace {
 
@@ -1490,6 +1491,7 @@ int RuntimeMain(int argc, char** argv) {
         RT_LOGF(RT_TAG_RUNTIME, "game folder: %s\n", GameFolder::Describe().c_str());
         ModInstall::StartInstallingDroppedZips();
         ModRuntime::Load();
+        OthermBloomApply();
         if (const char* deterministic = std::getenv("OTHERM_DETERMINISTIC");
             deterministic != nullptr && std::string(deterministic) == "1") {
             DetClock::Enable();

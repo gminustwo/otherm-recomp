@@ -100,6 +100,7 @@ uint32_t VI_HLE_PresentedFrames() noexcept;  // hle_stubs.h: frames presented (O
 void OthermRequestCutsceneSkip();
 bool OthermCutscenePlaying();
 bool OthermMovieUp();
+void OthermBloomApply();  // hle/otherm_bloom.cpp: Options > Display > Bloom's code tap
 uint32_t VI_HLE_RetraceCount() noexcept;
 
 // Defined in runtime/src/hle/audio/ax_mix.cpp. That header is private to the HLE
@@ -1839,7 +1840,22 @@ std::vector<OptRow> OptionsRows(int tab) {
         rows.push_back({"V-Sync", OnOff(g_vsync.load()), [](int) { SetVSync(!g_vsync.load()); },
                         "No screen tearing. Turn off only if your screen has its own sync (G-Sync, FreeSync)."});
         rows.push_back({"FPS counter", OnOff(g_showFps), [](int) { SetShowFps(!g_showFps); }, "Frames per second in the corner."});
-        // No Bloom row: its filter was written for another game's renderer and does nothing in Other M.
+        {
+            // hle/otherm_bloom.cpp; the modes are RuntimeConfigFile::kBloom*, in this order.
+            static constexpr const char* kBloomLabels[] = {"On", "Native resolution", "Blurred", "Off"};
+            static constexpr const char* kBloomHelp[] = {
+                "The game's glow around bright lights, drawn at the internal resolution.",
+                "The glow drawn at the Wii's resolution: softer and wider, as on the console. May shimmer a little.",
+                "The glow blurred to the softness it has at the Wii's resolution, without the shimmer.",
+                "No glow around bright lights."};
+            const int32_t mode = std::clamp(RuntimeConfigFile::BloomMode(), 0, 3);
+            rows.push_back({"Bloom", kBloomLabels[mode], [](int d) {
+                const int32_t next = Cycle(std::clamp(RuntimeConfigFile::BloomMode(), 0, 3), d == 0 ? 1 : d, 4);
+                RuntimeConfigFile::SetBloomMode(next);
+                OthermBloomApply();
+                RT_LOGF(RT_TAG_RUNTIME, "[options] bloom %s\n", RuntimeConfigFile::kBloomModeNames[next]);
+            }, kBloomHelp[mode]});
+        }
         rows.push_back({"Copy filter", OnOff(!g_disableCopyFilter), [](int) {
             g_disableCopyFilter = !g_disableCopyFilter;
             aurora_set_disable_copy_filter(g_disableCopyFilter);

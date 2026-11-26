@@ -24,7 +24,9 @@ them in place.
 - **Options** (Start + Back together, F1, or the Guide button): pages for Game, Display, Sound, Controls, Textures,
   Saves, Cheats and Mods. LB / RB turn the pages; the mouse works too. The game pauses while it is open.
 - **Display**: internal resolution, any window size and aspect ratio (Fill screen draws a wider 3D view for 16:10,
-  21:9 and 32:9, with the HUD moved to the screen's edges), frame interpolation to 90, 120, 144 or 240 FPS, V-Sync.
+  21:9 and 32:9, with the HUD moved to the screen's edges), frame interpolation to 90, 120, 144 or 240 FPS, V-Sync,
+  and the game's bloom (the glow around bright lights): as the game draws it, at the Wii's resolution, blurred to
+  that softness, or off (Dolphin's bloom graphics mods).
 - **Save states** (F5 / F9, or a held controller chord set in Options > Controls).
 - **Skip cutscenes**: Start, A or LB (Backspace on the keyboard) skips a movie or an in-engine cutscene. In-engine
   cutscenes end through the game's own skip, the one it offers after you have seen a cutscene, so the game carries

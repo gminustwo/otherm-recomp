@@ -19,3 +19,7 @@
 # room-based choice of model 253) with a choice by the suit bits. The taps take the 253 branch and set the model.
 805F60FC before r0
 805F6104 after r3
+# Options > Display > Bloom off (runtime/src/hle/otherm_bloom.cpp): the bloom pass rel_80813E4C ends by adding its
+# glow over the scene, GXSetBlendMode(BLEND, ONE, ONE, CLEAR) at 0x80814E00 and two quads. The tap gives the source
+# factor ZERO, so those quads leave the picture as it is.
+80814DF4 after r4
