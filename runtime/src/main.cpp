@@ -80,6 +80,7 @@
 #include "graphics_info.h"
 #include "vulkan_probe.h"
 #include "tray_icon.h"
+#include "discord_presence.h"
 #include "button_icons.h"
 #include "wii_remote_input.h"
 #include "fiber_manager.h"
@@ -1665,6 +1666,7 @@ int RuntimeMain(int argc, char** argv) {
                                          auroraInfo.windowSize.native_fb_height);
         settings_overlay::InitializeRuntimeSettings();
         TrayIcon::Start();  // after InitializeRuntimeSettings read the version for its tooltip
+        DiscordPresence::Start();
         static constexpr const char* kAspectNames[] = {"original 4:3", "16:9", "fill", "cinematic 2.39:1"};
         RT_LOG(RT_TAG_CONFIG) << "display aspect=" << kAspectNames[displaySettings.aspect]
                   << " SCGetAspectRatio=" << (configWidescreen ? 1 : 0)

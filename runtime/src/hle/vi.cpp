@@ -12,6 +12,7 @@
 #include "ppc_runtime.h"
 #include "aurora_events.h"
 #include "settings_overlay.h"
+#include "discord_presence.h"
 #include "gpu_load.h"
 #include "fiber_manager.h"
 #include "platform/host_platform.h"
@@ -25,6 +26,7 @@
 
 void OthermMovieFrame();  // hle/otherm_movie.cpp: a movie no longer updated gives the ultrawide bars back
 void OthermCutsceneFrame();  // hle/otherm_cutscene.cpp: in-engine cutscenes (the game's own skip, logging)
+void OthermAreaFrame();      // hle/otherm_area.cpp: where the player is ([area] lines, Discord's status)
 #include "standalone_save_state.h"
 
 #include <dolphin/gx/GXAurora.h>
@@ -850,6 +852,7 @@ void AdvanceRetrace(CpuContext* ctx, Clock::time_point retraceStamp, bool servic
     }
     OthermMovieFrame();
     OthermCutsceneFrame();
+    OthermAreaFrame();
 
     uint32_t preCb = 0;
     uint32_t postCb = 0;
@@ -1827,8 +1830,12 @@ void VI_HLE_RunLauncher()
             VI_HLE_PresentFrame(false, false);
             ++frames;
         }
+        if (frames % 30u == 0u) {
+            DiscordPresence::Publish(settings_overlay::LauncherSettingUp() ? "Setting up the game" : "On the start screen", "");
+        }
         SleepPreciselyUntil(deadline);
     }
+    DiscordPresence::Publish("", "");
     RT_LOGF(RT_TAG_VI, "[launcher] the game boots after %u start-screen frames\n", frames);
 }
 

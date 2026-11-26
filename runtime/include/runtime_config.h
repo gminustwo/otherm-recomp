@@ -92,6 +92,7 @@ struct RuntimeUserConfig {
     // corrected accelerometer, buttons) to wii_accel_trace.csv next to Config.toml.
     std::optional<bool> wiiAccelTrace;
     std::optional<bool> networkEnabled;
+    std::optional<bool> discordPresence;      // [discord] enabled: Rich Presence in a Discord running on this PC
     std::optional<std::string> nandRoot;
     // [paths] dolphin_folder: a Dolphin user folder picked in Options (a portable install's User folder).
     std::optional<std::string> dolphinFolder;
@@ -588,6 +589,7 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
     config.wiiAccelOffsetZ = FindConfigValue<double>(document, "controller", "wii_accel_offset_z");
     config.wiiAccelTrace = FindConfigValue<bool>(document, "controller", "wii_accel_trace");
     config.networkEnabled = FindConfigValue<bool>(document, "network", "enabled");
+    config.discordPresence = FindConfigValue<bool>(document, "discord", "enabled");
 
     config.nandRoot = FindConfigValue<std::string>(document, "paths", "nand_root");
     config.dolphinFolder = FindConfigValue<std::string>(document, "paths", "dolphin_folder");
@@ -1308,6 +1310,17 @@ inline bool NetworkEnabled(bool fallback = true) {
     return Get().networkEnabled.value_or(fallback);
 }
 
+// Discord Rich Presence (discord_presence.h). The key is the one the old presence used, so a player who turned that
+// off keeps it off.
+inline bool DiscordPresence(bool fallback = true) {
+    return Get().discordPresence.value_or(fallback);
+}
+
+inline bool SetDiscordPresence(bool value) {
+    Mutable().discordPresence = value;
+    return WriteSetting("discord", "enabled", value ? "true" : "false");
+}
+
 inline std::string NandRoot(std::string fallback = "") {
     return Get().nandRoot.value_or(std::move(fallback));
 }
@@ -1414,6 +1427,9 @@ inline void LogLoadedConfig() {
             }
             if (config.networkEnabled) {
                 std::cout << " network_enabled=" << (*config.networkEnabled ? "true" : "false");
+            }
+            if (config.discordPresence) {
+                std::cout << " discord_presence=" << (*config.discordPresence ? "true" : "false");
             }
             if (config.nandRoot) {
                 std::cout << " nand_root=" << *config.nandRoot;

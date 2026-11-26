@@ -29,6 +29,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdlib>
+#include <mutex>
 #include <string>
 
 namespace {
@@ -75,6 +76,21 @@ const uint32_t* Elements() {
         for (uint32_t i = 0; i < kElementSlots; ++i) s_elements[i] = Element(i);
     }
     return s_elements;
+}
+
+// The area map drawn last, for where the player is (OthermMinimap::DrawnAreaMap): its layout's name and the presented
+// frame it was drawn in.
+std::mutex g_areaMapMutex;
+std::string g_areaMap;
+uint32_t g_areaMapFrame = 0;
+
+void NoteAreaMap(uint32_t e) {
+    uint32_t vtable = 0;
+    if (!Memory::TryRead32(e + 0x114u, vtable) || vtable != kAreaMapVtable) return;
+    std::string name = ElementName(e);
+    std::lock_guard<std::mutex> lock(g_areaMapMutex);
+    g_areaMap = std::move(name);
+    g_areaMapFrame = VI_HLE_PresentedFrames();
 }
 
 // The element's first index in the table, -1 if it is not in it (for the log).
@@ -179,6 +195,13 @@ uint32_t HudMapFrameLayout() {
     return HudMapLayouts()[kHudMapFrame - kHudMapFirst];
 }
 
+std::string DrawnAreaMap(uint32_t withinFrames) {
+    const uint32_t frame = VI_HLE_PresentedFrames();
+    std::lock_guard<std::mutex> lock(g_areaMapMutex);
+    if (g_areaMap.empty() || frame - g_areaMapFrame > withinFrames) return {};
+    return g_areaMap;
+}
+
 }  // namespace OthermMinimap
 
 // 0x80638CAC: void HudElement::Draw(HudElement* e), natively, with the north-up turn added. Same steps as the game's:
@@ -189,6 +212,7 @@ uint32_t HudMapFrameLayout() {
 extern "C" void OthermHudElementDraw_HLE(CpuContext* ctx) {
     const uint32_t e = ctx->gpr[3];
     if (Memory::Read8(e + 0xC8u) == 0) return;
+    NoteAreaMap(e);
     float x = Memory::ReadFloat32(e + 0xB8u);
     float y = Memory::ReadFloat32(e + 0xBCu);
     float angle = Memory::ReadFloat32(e + 0xC0u);

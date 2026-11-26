@@ -2,6 +2,7 @@
 // The HUD map facing north (Options > Cheats): hle/otherm_minimap.cpp draws the HUD's elements (rel_80638CAC) and,
 // while this is on, turns the map's elements back by the map's own turn. NOTES.md 2026-11-20.
 #include <cstdint>
+#include <string>
 
 namespace OthermMinimap {
 bool NorthUp();
@@ -12,4 +13,8 @@ void SetNorthUp(bool on);  // saved to Config.toml [cheats] minimap_north_up
 // not made yet). Game thread only.
 bool IsHudMapLayout(uint32_t layout);
 uint32_t HudMapFrameLayout();
+
+// The name of the area map the HUD map drew within the last `withinFrames` presented frames (its layout: "A_36",
+// "MA_01"), empty when none was (pause screen, cutscenes, menus). Read by hle/otherm_area.cpp. Any thread.
+std::string DrawnAreaMap(uint32_t withinFrames);
 }  // namespace OthermMinimap
