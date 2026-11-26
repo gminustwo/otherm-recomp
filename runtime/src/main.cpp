@@ -38,6 +38,7 @@
 #include <io.h>
 #include <crtdbg.h>
 #include <windows.h>
+#include <shellapi.h>
 #include <mmsystem.h>
 #include <dbghelp.h>
 #else
@@ -1363,14 +1364,45 @@ bool LauncherWanted(int argc, char** argv, bool gameReady) {
 // (game_folder.h). Prints "progress <0-1> <text>" lines, and the reason last when it fails. Files already set up are
 // kept: progress 1 at once, no disc image needed. With RECOMPLAUNCHER_DATA, game-files-ready.txt there says the set-up
 // has finished (removed before a set-up starts, written once it is done).
+// The command line in UTF-8, as the runtime's paths are. On Windows main() gets its arguments in the ANSI code page,
+// which can't hold every character of a player's folder names (an accented or non-Latin user name), so --game would
+// name another file; the wide command line has them all.
+std::vector<std::string> Utf8Arguments(int argc, char** argv) {
+#if defined(_WIN32)
+    int count = 0;
+    if (LPWSTR* wide = ::CommandLineToArgvW(::GetCommandLineW(), &count); wide != nullptr) {
+        std::vector<std::string> out;
+        out.reserve(static_cast<size_t>(count));
+        for (int i = 0; i < count; ++i) out.push_back(RuntimeConfigFile::PathToUtf8(std::filesystem::path(wide[i])));
+        ::LocalFree(wide);
+        return out;
+    }
+#endif
+    std::vector<std::string> out;
+    for (int i = 0; i < argc; ++i) out.emplace_back(argv[i] != nullptr ? argv[i] : "");
+    return out;
+}
+
+// An environment variable that holds a path, read as wide text on Windows for the same reason.
+std::filesystem::path EnvironmentPath(const char* name) {
+#if defined(_WIN32)
+    const std::wstring wideName(name, name + std::strlen(name));
+    const wchar_t* value = ::_wgetenv(wideName.c_str());
+    return value != nullptr ? std::filesystem::path(value) : std::filesystem::path();
+#else
+    const char* value = std::getenv(name);
+    return value != nullptr ? RuntimeConfigFile::PathFromUtf8(value) : std::filesystem::path();
+#endif
+}
+
 int RunPrepare(const std::string& game) {
     const auto progress = [](float fraction, const char* text) {
         std::printf("progress %.2f %s\n", fraction, text);
         std::fflush(stdout);
     };
     std::filesystem::path marker;
-    if (const char* data = std::getenv("RECOMPLAUNCHER_DATA"); data != nullptr && *data != '\0') {
-        marker = RuntimeConfigFile::PathFromUtf8(data) / "game-files-ready.txt";
+    if (const std::filesystem::path data = EnvironmentPath("RECOMPLAUNCHER_DATA"); !data.empty()) {
+        marker = data / "game-files-ready.txt";
     }
     const auto markReady = [&marker] {
         if (marker.empty()) return;
@@ -1518,14 +1550,15 @@ int RuntimeMain(int argc, char** argv) {
         // without a window (RunPrepare). Anything else is refused.
         bool prepare = false;
         std::string game;
-        for (int i = 1; i < argc; ++i) {
-            const std::string_view arg = argv[i] != nullptr ? argv[i] : "";
+        const std::vector<std::string> args = Utf8Arguments(argc, argv);
+        for (size_t i = 1; i < args.size(); ++i) {
+            const std::string_view arg = args[i];
             if (arg == "--prepare") {
                 prepare = true;
             } else if (arg.rfind("--game=", 0) == 0) {
                 game = std::string(arg.substr(7));
-            } else if (arg == "--game" && i + 1 < argc) {
-                game = argv[++i];
+            } else if (arg == "--game" && i + 1 < args.size()) {
+                game = args[++i];
             } else if (arg != "--play") {
                 throw std::invalid_argument("The game runtime does not accept the command-line option " + std::string(arg) +
                                             "; use Config.toml through the installed host.");

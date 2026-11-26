@@ -338,6 +338,8 @@ fs::path GameRoot() {
     // run from a read-only copy (App Translocation) and which an update replaces whole.
     return RuntimeConfigFile::ApplicationDataDirectory();
 #else
+    // Linux under RecompLauncher: its data folder, kept across updates (runtime_config.h LauncherDataDirectory).
+    if (const auto& launcher = RuntimeConfigFile::LauncherDataDirectory()) return *launcher;
     // An AppImage's program runs from its read-only mount: the game folder is the one holding the .AppImage file.
     if (const auto& appImage = RuntimeConfigFile::AppImageDirectory()) return *appImage;
     const fs::path engine = EngineDirectory();

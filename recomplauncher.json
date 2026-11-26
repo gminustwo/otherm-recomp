@@ -28,7 +28,7 @@
       "id": "main",
       "format": "toml",
       "file": [
-        { "path": "{install}/usr/bin/UserData/Config.toml", "if": "{install}/AppRun" },
+        { "path": "{data}/UserData/Config.toml", "if": "{install}/AppRun" },
         { "path": "{home}/Library/Application Support/OtherMRecompiled/Config.toml", "if": "{install}/Other M Recompiled.app" },
         { "path": "{install}/UserData/Config.toml" }
       ]
@@ -36,22 +36,22 @@
   ],
   "folders": {
     "game": [
-      { "path": "{install}/usr/bin/Disc/DATA", "if": "{install}/AppRun" },
+      { "path": "{data}/Disc/DATA", "if": "{install}/AppRun" },
       { "path": "{home}/Library/Application Support/OtherMRecompiled/Disc/DATA", "if": "{install}/Other M Recompiled.app" },
       { "path": "{install}/Disc/DATA" }
     ],
     "saves": [
-      { "path": "{install}/usr/bin/UserData", "if": "{install}/AppRun" },
+      { "path": "{data}/UserData", "if": "{install}/AppRun" },
       { "path": "{home}/Library/Application Support/OtherMRecompiled", "if": "{install}/Other M Recompiled.app" },
       { "path": "{install}/UserData" }
     ],
     "logs": [
-      { "path": "{install}/usr/bin/UserData/Logs", "if": "{install}/AppRun" },
+      { "path": "{data}/UserData/Logs", "if": "{install}/AppRun" },
       { "path": "{home}/Library/Application Support/OtherMRecompiled/Logs", "if": "{install}/Other M Recompiled.app" },
       { "path": "{install}/UserData/Logs" }
     ],
     "mods": [
-      { "path": "{install}/usr/bin/UserData/mods", "if": "{install}/AppRun" },
+      { "path": "{data}/UserData/mods", "if": "{install}/AppRun" },
       { "path": "{home}/Library/Application Support/OtherMRecompiled/mods", "if": "{install}/Other M Recompiled.app" },
       { "path": "{install}/UserData/mods" }
     ]
@@ -59,8 +59,8 @@
   "saves": [
     "{install}/UserData/NAND",
     "{install}/UserData/Saves",
-    "{install}/usr/bin/UserData/NAND",
-    "{install}/usr/bin/UserData/Saves",
+    "{data}/UserData/NAND",
+    "{data}/UserData/Saves",
     "{home}/Library/Application Support/OtherMRecompiled/NAND",
     "{home}/Library/Application Support/OtherMRecompiled/Saves"
   ],

@@ -289,6 +289,21 @@ inline const std::optional<std::filesystem::path>& AppImageDirectory() {
     return dir;
 }
 
+// Linux under RecompLauncher: RECOMPLAUNCHER_DATA ({install}/recompdata), which the launcher keeps across updates. It
+// always runs the AppImage unpacked, from a folder whose AppRun and usr/ every update replaces, so the program's own
+// folder would lose UserData, Metroid.ini and Disc/DATA. (On Windows they stay beside the program in {install}, where
+// the launcher keeps them; macOS uses Application Support.) nullopt elsewhere.
+inline const std::optional<std::filesystem::path>& LauncherDataDirectory() {
+    static const std::optional<std::filesystem::path> dir = []() -> std::optional<std::filesystem::path> {
+#if defined(__linux__) && !defined(__ANDROID__)
+        const char* data = std::getenv("RECOMPLAUNCHER_DATA");
+        if (data != nullptr && *data != '\0') return std::filesystem::path(data);
+#endif
+        return std::nullopt;
+    }();
+    return dir;
+}
+
 // Where the player's own files beside the program go (Metroid.ini): the AppImage's folder, else the program's. On
 // Android the app's data folder: the program's folder there holds the runtime files the app unpacks, which an update
 // replaces. On macOS the app data folder too, where UserData's files go there: a downloaded .app can run from a
@@ -297,6 +312,7 @@ inline std::optional<std::filesystem::path> PlayerDirectory() {
 #if defined(__ANDROID__) || defined(__APPLE__)
     return RuntimePlatform::ApplicationDataDirectory(kApplicationDirectoryName);
 #else
+    if (const auto& launcher = LauncherDataDirectory()) return launcher;
     if (const auto& appImage = AppImageDirectory()) return appImage;
     return ExecutableDirectory();
 #endif
