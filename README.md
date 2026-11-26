@@ -164,9 +164,9 @@ the game as `Metroid.ini`, or point `OTHERM_WIIMOTE_PROFILE` at it.
 
 ## Reporting a problem
 
-Open an issue on the [Issues](../../issues/new/choose) page and pick **Bug report** (or **Feature request** for an
-idea): the form asks for what helps. Please check the open issues first, and report one problem per issue. What to
-have at hand:
+Open an issue on the [Issues](https://github.com/gminustwo/otherm-recomp/issues/new/choose) page and pick **Bug
+report** (or **Feature request** for an idea): the form asks for what helps. Please check the open issues first, and
+report one problem per issue. What to have at hand:
 
 - **The version**: Options (Start + Back together, or F1) > Game > Update, e.g. "v0.1.0". It is also on the log's
   first line.
