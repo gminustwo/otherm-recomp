@@ -1696,7 +1696,9 @@ std::vector<OptRow> OptionsRows(int tab) {
             g_ffToggleMode = !g_ffToggleMode;
             RuntimeConfigFile::SetFastForwardToggle(g_ffToggleMode);
         }, "Keyboard: F.  Controller: click the right stick."});
-        if (!Updater::Current().empty()) {
+        if (!Updater::Current().empty() && Updater::FromLauncher()) {
+            rows.push_back({"Update", Updater::Current(), {}, "RecompLauncher keeps the game up to date."});
+        } else if (!Updater::Current().empty()) {
             using S = Updater::State;
             const S st = Updater::GetState();
             const std::string value = st == S::Available ? Updater::Latest() + " - install"

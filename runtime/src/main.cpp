@@ -1358,6 +1358,65 @@ bool LauncherWanted(int argc, char** argv, bool gameReady) {
     return show;
 }
 
+// --prepare: sets the game's files up from the player's disc image without a window, for a launcher's setup step
+// (RecompLauncher runs it with --game=<disc image>, recomplauncher.json). The same set-up as the start screen's
+// (game_folder.h). Prints "progress <0-1> <text>" lines, and the reason last when it fails. Files already set up are
+// kept: progress 1 at once, no disc image needed. With RECOMPLAUNCHER_DATA, game-files-ready.txt there says the set-up
+// has finished (removed before a set-up starts, written once it is done).
+int RunPrepare(const std::string& game) {
+    const auto progress = [](float fraction, const char* text) {
+        std::printf("progress %.2f %s\n", fraction, text);
+        std::fflush(stdout);
+    };
+    std::filesystem::path marker;
+    if (const char* data = std::getenv("RECOMPLAUNCHER_DATA"); data != nullptr && *data != '\0') {
+        marker = RuntimeConfigFile::PathFromUtf8(data) / "game-files-ready.txt";
+    }
+    const auto markReady = [&marker] {
+        if (marker.empty()) return;
+        std::error_code ec;
+        std::filesystem::create_directories(marker.parent_path(), ec);
+        std::ofstream(marker) << GameFolder::Describe() << "\n";
+    };
+    if (GameFolder::Ready()) {
+        markReady();
+        progress(1.0f, "Already set up");
+        return 0;
+    }
+    if (!marker.empty()) {
+        std::error_code ec;
+        std::filesystem::remove(marker, ec);
+    }
+    if (game.empty()) {
+        std::printf("The game's files are not set up yet. Pick your disc image of Metroid: Other M (USA, R3OE01, "
+                    "revision 1).\n");
+        return 2;
+    }
+    progress(0.0f, "Checking your disc image");
+    GameFolder::StartSetUp(RuntimeConfigFile::PathFromUtf8(game));
+    float shown = 0.0f;
+    auto lastLine = std::chrono::steady_clock::now();
+    for (;;) {
+        const GameFolder::SetUpStatus status = GameFolder::Progress();  // saves the finished set-up's folder
+        if (!status.running) {
+            if (!status.ok) {
+                std::printf("%s\n", status.message.c_str());
+                return 1;
+            }
+            markReady();
+            progress(1.0f, "Set up");
+            return 0;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (status.fraction - shown >= 0.01f || now - lastLine >= std::chrono::minutes(1)) {
+            shown = std::max(shown, status.fraction);
+            progress(std::clamp(shown, 0.0f, 0.99f), "Unpacking the game's files from your disc image");
+            lastLine = now;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+}
+
 } // namespace
 
 // Retained as the thin public wrapper over WriteFatalLogImpl (declared in
@@ -1455,10 +1514,32 @@ int RuntimeMain(int argc, char** argv) {
     std::string currentEntryLabel;
 
     try {
-        if (argc != 1) {
-            throw std::invalid_argument("The game runtime does not accept command-line options; use Config.toml through the installed host.");
+        // --play skips the start screen (LauncherWanted); --prepare with --game=<disc image> sets the game's files up
+        // without a window (RunPrepare). Anything else is refused.
+        bool prepare = false;
+        std::string game;
+        for (int i = 1; i < argc; ++i) {
+            const std::string_view arg = argv[i] != nullptr ? argv[i] : "";
+            if (arg == "--prepare") {
+                prepare = true;
+            } else if (arg.rfind("--game=", 0) == 0) {
+                game = std::string(arg.substr(7));
+            } else if (arg == "--game" && i + 1 < argc) {
+                game = argv[++i];
+            } else if (arg != "--play") {
+                throw std::invalid_argument("The game runtime does not accept the command-line option " + std::string(arg) +
+                                            "; use Config.toml through the installed host.");
+            }
+        }
+        if (!game.empty() && !prepare) {
+            throw std::invalid_argument("--game is read with --prepare; the start screen sets the game up otherwise.");
         }
         RuntimeConfigFile::LogLoadedConfig();
+        if (prepare) {
+            const int code = RunPrepare(game);
+            ShutdownProcessTranscript();
+            return code;
+        }
 #if defined(_WIN32)
         if (!g_cpuSetNote.empty()) RT_LOGF(RT_TAG_RUNTIME, "%s\n", g_cpuSetNote.c_str());
 #endif

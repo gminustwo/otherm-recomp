@@ -15,4 +15,6 @@ std::string Latest();       // the newer release's tag while State::Available
 void Install();             // download in the background; on success the game quits into the update script
 bool CheckEnabled();
 void SetCheckEnabled(bool on);
+// Started by RecompLauncher (RECOMPLAUNCHER=1), which installs the releases itself: nothing is checked or installed.
+bool FromLauncher();
 } // namespace Updater
