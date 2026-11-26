@@ -540,6 +540,17 @@ static inline bool copy_texture_format_compatible(GXTexFmt copyFmt, u32 sampleFm
   if (static_cast<u32>(copyFmt) == sampleFmt) {
     return true;
   }
+  // A palette format read from an EFB copy, as Dolphin allows: the copy's texels are the indices, looked up in the
+  // TLUT on the GPU (gx.cpp resolve_dynamic_palette_texture). These copies keep their 8- or 4-bit value in every
+  // channel (tex_copy_conv.cpp), which is what that conversion reads. Other M's first-person tutorial pause copies
+  // the scene as I8 and draws it as C8 through a sepia TLUT (GitHub issue #21: black without this).
+  if (sampleFmt == GX_TF_C8) {
+    return copyFmt == GX_TF_I8 || copyFmt == GX_CTF_R8 || copyFmt == GX_CTF_G8 || copyFmt == GX_CTF_B8 ||
+           copyFmt == GX_CTF_A8;
+  }
+  if (sampleFmt == GX_TF_C4) {
+    return copyFmt == GX_TF_I4 || copyFmt == GX_CTF_R4;
+  }
 
   switch (copyFmt) {
   case GX_CTF_R4:

@@ -65,7 +65,8 @@ static constexpr std::string_view ShaderFromFloat8 = R"(
     let texSize = vec2f(textureDimensions(src));
     let coord = vec2i(floor(in.uv * texSize));
     let r = textureLoad(src, coord, 0).r;
-    return textureLoad(tlut, vec2i(i32(r * 255.0), 0), 0);
+    // Rounded: k / 255 read back can be a hair under k, which truncation took for k - 1.
+    return textureLoad(tlut, vec2i(i32(round(r * 255.0)), 0), 0);
 }
 )"sv;
 
@@ -79,7 +80,7 @@ static constexpr std::string_view ShaderFromFloat4 = R"(
     let texSize = vec2f(textureDimensions(src));
     let coord = vec2i(floor(in.uv * texSize));
     let r = textureLoad(src, coord, 0).r;
-    return textureLoad(tlut, vec2i(i32(r * 15.0), 0), 0);
+    return textureLoad(tlut, vec2i(i32(round(r * 15.0)), 0), 0);
 }
 )"sv;
 
