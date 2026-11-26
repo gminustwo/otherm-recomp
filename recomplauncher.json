@@ -1,0 +1,157 @@
+{
+  "$schema": "https://recomplauncher.com/schema/recomplauncher.json",
+  "format": 1,
+  "name": "Other M Recompiled",
+  "repo": "gminustwo/otherm-recomp",
+  "inputs": [
+    {
+      "id": "game",
+      "label": "Your disc image of Metroid: Other M for the Wii, the USA release, revision 1 (R3OE01): .rvz, .iso, .wbfs, .wia, .gcz or .ciso.",
+      "formats": [{ "type": "file", "extensions": ["rvz", "iso", "wbfs", "wia", "gcz", "ciso"] }],
+      "check": { "ids": ["R3OE01"] },
+      "dumps": [{ "name": "USA (Rev 1)", "size": 8511160320, "crc32": "62515755" }]
+    }
+  ],
+  "start": {
+    "program": ["MetroidOtherM.exe", "Other M Recompiled.app", "OtherMRecompiled-x86_64.AppImage"],
+    "args": ["--play"]
+  },
+  "prepare": {
+    "program": ["MetroidOtherM.exe", "Other M Recompiled.app", "OtherMRecompiled-x86_64.AppImage"],
+    "args": ["--prepare", "--game={input:game}"],
+    "label": "The game's files from your disc image (about 7.5 GB, once)",
+    "done": ["{data}/game-files-ready.txt"],
+    "keeps_copy": true
+  },
+  "config": [
+    {
+      "id": "main",
+      "format": "toml",
+      "file": [
+        { "path": "{install}/usr/bin/UserData/Config.toml", "if": "{install}/AppRun" },
+        { "path": "{home}/Library/Application Support/OtherMRecompiled/Config.toml", "if": "{install}/Other M Recompiled.app" },
+        { "path": "{install}/UserData/Config.toml" }
+      ]
+    }
+  ],
+  "folders": {
+    "game": [
+      { "path": "{install}/usr/bin/Disc/DATA", "if": "{install}/AppRun" },
+      { "path": "{home}/Library/Application Support/OtherMRecompiled/Disc/DATA", "if": "{install}/Other M Recompiled.app" },
+      { "path": "{install}/Disc/DATA" }
+    ],
+    "saves": [
+      { "path": "{install}/usr/bin/UserData", "if": "{install}/AppRun" },
+      { "path": "{home}/Library/Application Support/OtherMRecompiled", "if": "{install}/Other M Recompiled.app" },
+      { "path": "{install}/UserData" }
+    ],
+    "logs": [
+      { "path": "{install}/usr/bin/UserData/Logs", "if": "{install}/AppRun" },
+      { "path": "{home}/Library/Application Support/OtherMRecompiled/Logs", "if": "{install}/Other M Recompiled.app" },
+      { "path": "{install}/UserData/Logs" }
+    ],
+    "mods": [
+      { "path": "{install}/usr/bin/UserData/mods", "if": "{install}/AppRun" },
+      { "path": "{home}/Library/Application Support/OtherMRecompiled/mods", "if": "{install}/Other M Recompiled.app" },
+      { "path": "{install}/UserData/mods" }
+    ]
+  },
+  "saves": [
+    "{install}/UserData/NAND",
+    "{install}/UserData/Saves",
+    "{install}/usr/bin/UserData/NAND",
+    "{install}/usr/bin/UserData/Saves",
+    "{home}/Library/Application Support/OtherMRecompiled/NAND",
+    "{home}/Library/Application Support/OtherMRecompiled/Saves"
+  ],
+  "settings": [
+    {
+      "id": "window", "label": "Window", "group": "Display",
+      "help": "Fullscreen fills your screen and lets you switch apps quickly. F11 also switches in the game.",
+      "choices": [
+        { "label": "Fullscreen", "set": { "video/display_mode": "\"borderless\"" } },
+        { "label": "Windowed", "set": { "video/display_mode": "\"windowed\"" } },
+        { "label": "Exclusive fullscreen", "set": { "video/display_mode": "\"exclusive\"" } }
+      ],
+      "defaults": { "video/display_mode": "\"borderless\"" }
+    },
+    {
+      "id": "resolution", "label": "Resolution", "group": "Display",
+      "help": "How sharp the picture is. Auto matches your screen. Dynamic keeps 60 FPS, on Linux with an AMD graphics card.",
+      "choices": [
+        { "label": "Auto (screen size)", "set": { "video/dynamic_resolution": "false", "video/resolution_multiplier": "0" } },
+        { "label": "720p", "set": { "video/dynamic_resolution": "false", "video/resolution_multiplier": "1.5" } },
+        { "label": "1080p", "set": { "video/dynamic_resolution": "false", "video/resolution_multiplier": "2.25" } },
+        { "label": "1440p", "set": { "video/dynamic_resolution": "false", "video/resolution_multiplier": "3" } },
+        { "label": "4K", "set": { "video/dynamic_resolution": "false", "video/resolution_multiplier": "4.5" } },
+        { "label": "Dynamic", "set": { "video/dynamic_resolution": "true" } }
+      ],
+      "defaults": { "video/dynamic_resolution": "false", "video/resolution_multiplier": "2.25" }
+    },
+    {
+      "id": "aspect", "label": "Aspect ratio", "group": "Display",
+      "help": "Fill screen shows more to the sides on ultrawide screens, with the HUD at the screen's edges.",
+      "choices": [
+        { "label": "Fill screen", "set": { "video/aspect_mode": "2" } },
+        { "label": "16:9", "set": { "video/aspect_mode": "1" } },
+        { "label": "Original 4:3", "set": { "video/aspect_mode": "0" } }
+      ],
+      "defaults": { "video/aspect_mode": "2" }
+    },
+    {
+      "id": "frame_rate", "label": "Frame rate", "group": "Display",
+      "help": "Above 60, extra frames are made between the game's own for smoother motion. 90 and 144 suit screens of that refresh rate.",
+      "choices": [
+        { "label": "60 FPS (original)", "set": { "video/frame_interpolation_fps": "0" } },
+        { "label": "90 FPS", "set": { "video/frame_interpolation_fps": "90" } },
+        { "label": "120 FPS", "set": { "video/frame_interpolation_fps": "120" } },
+        { "label": "144 FPS", "set": { "video/frame_interpolation_fps": "144" } }
+      ],
+      "defaults": { "video/frame_interpolation_fps": "120" }
+    },
+    {
+      "id": "vsync", "label": "V-Sync", "group": "Display",
+      "help": "No screen tearing. Turn it off only if your screen has its own sync (G-Sync, FreeSync).",
+      "choices": [
+        { "label": "On", "set": { "video/vsync": "true" } },
+        { "label": "Off", "set": { "video/vsync": "false" } }
+      ],
+      "defaults": { "video/vsync": "true" }
+    },
+    {
+      "id": "upscaler", "label": "Upscaling", "group": "Display",
+      "help": "FSR enlarges the picture to your screen with sharp edges, when Resolution is below your screen's.",
+      "choices": [
+        { "label": "Off", "set": { "video/upscaler": "\"off\"" } },
+        { "label": "FSR", "set": { "video/upscaler": "\"fsr\"" } }
+      ],
+      "defaults": { "video/upscaler": "\"off\"" }
+    },
+    {
+      "id": "anti_aliasing", "label": "Anti-aliasing", "group": "Display",
+      "help": "Smooths jagged edges on the finished picture.",
+      "choices": [
+        { "label": "Off", "set": { "video/anti_aliasing": "\"off\"" } },
+        { "label": "SMAA", "set": { "video/anti_aliasing": "\"smaa\"" } }
+      ],
+      "defaults": { "video/anti_aliasing": "\"off\"" }
+    },
+    {
+      "id": "fps", "label": "FPS counter", "group": "Display",
+      "help": "Frames per second in the corner.",
+      "choices": [
+        { "label": "Off", "set": { "video/show_fps": "false" } },
+        { "label": "On", "set": { "video/show_fps": "true" } }
+      ],
+      "defaults": { "video/show_fps": "false" }
+    }
+  ],
+  "actions": [
+    { "id": "saves", "label": "Saves and settings", "help": "Your saves, save states, settings and logs.", "open": "saves" },
+    { "id": "mods", "label": "Mods", "help": "Put a mod's zip or folder here: Other M Redux and Riivolution packs.", "open": "mods" }
+  ],
+  "system": {
+    "linux": { "glibc": "2.38" },
+    "macos": { "version": "12" }
+  }
+}
