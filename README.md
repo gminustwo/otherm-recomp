@@ -33,6 +33,11 @@ them in place.
 - **Fast-forward** (hold F or click the right stick; 2x to 8x or Max in Options > Game): the whole game speeds up
   together, movies, cutscenes, sound and timers alike, as in Dolphin. When the PC can't reach the chosen speed,
   everything slows down together instead of the sound running ahead of the picture.
+- **Languages**: Options > Game sets each on its own. **Voices**: English or Japanese (the USA disc carries both voice
+  casts). **Text language** (over the game's own Language option) and **Subtitles** (Off, or a language of their
+  own): Japanese, English, German, Italian, and European, Canadian or Latin American French and Spanish, all on the
+  disc. Voices and subtitles change while you play; the text language, and Japanese subtitles when the Japanese font
+  isn't loaded, apply at the next start (Options says so in amber).
 - **Controls**: any controller through a Dolphin Wii Remote profile (`Metroid.ini`), rebinding from Options, rumble,
   the mouse as the Wii pointer, real Wii Remotes over Bluetooth.
 - **Textures**: Dolphin-style texture packs, with optional prefetch.

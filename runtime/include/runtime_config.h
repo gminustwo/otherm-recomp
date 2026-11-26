@@ -107,6 +107,11 @@ struct RuntimeUserConfig {
     std::optional<int32_t> muteHotkey;
     std::optional<int32_t> fastForwardSpeed;  // [game] fast_forward_speed: 2..8 times, 0 = as fast as the PC goes
     std::optional<bool> skipAnyCutscene;      // [game] skip_cutscenes: "any" (default) or "seen" (the game's own rule)
+    std::optional<bool> japaneseVoices;       // [game] voices: "en" (default) or "jp" (hle/otherm_language.cpp)
+    // [game] text_language / subtitles: a code of kGameLanguageCodes, "game" (default: the game's own setting) or,
+    // for subtitles, "off". Kept as the game's language index (-1 the game's, -2 off) so the game thread reads an int.
+    std::optional<int32_t> textLanguage;
+    std::optional<int32_t> subtitleLanguage;
     std::optional<bool> fastForwardToggle;    // [game] fast_forward_toggle: a press toggles it, else hold
     std::optional<bool> fasterMenus;          // [game] faster_menus: menus, saves and loads run faster
     std::optional<bool> saveAnywhere;         // [game] save_anywhere: Options > Game has "Save game"
@@ -123,6 +128,21 @@ struct RuntimeUserConfig {
 };
 
 namespace RuntimeConfigFile {
+
+// The game's text languages by its own index: message/message_all.dat's sections (all eight are on the USA disc).
+inline constexpr const char* kGameLanguageCodes[] = {"jp", "en", "de", "fr", "es", "it", "fr_us", "es_us"};
+
+// A code of kGameLanguageCodes -> its index; "off" (subtitles only) -> -2; anything else ("game") -> -1.
+inline int32_t GameLanguageIndex(const std::string& code, bool allowOff) {
+    for (int32_t i = 0; i < 8; ++i) {
+        if (code == kGameLanguageCodes[i]) return i;
+    }
+    return allowOff && code == "off" ? -2 : -1;
+}
+
+inline const char* GameLanguageCode(int32_t index) {
+    return index >= 0 && index < 8 ? kGameLanguageCodes[index] : index == -2 ? "off" : "game";
+}
 
 // Narrow path strings are UTF-8 everywhere in the runtime; string() and the
 // char path constructor would use the ANSI codepage on Windows, which drops
@@ -471,6 +491,15 @@ inline RuntimeUserConfig ParseConfigDocument(const toml::value& document) {
     config.fastForwardToggle = FindConfigValue<bool>(document, "game", "fast_forward_toggle");
     if (auto value = FindConfigValue<std::string>(document, "game", "skip_cutscenes")) {
         config.skipAnyCutscene = *value != "seen";
+    }
+    if (auto value = FindConfigValue<std::string>(document, "game", "voices")) {
+        config.japaneseVoices = *value == "jp";
+    }
+    if (auto value = FindConfigValue<std::string>(document, "game", "text_language")) {
+        config.textLanguage = GameLanguageIndex(*value, false);
+    }
+    if (auto value = FindConfigValue<std::string>(document, "game", "subtitles")) {
+        config.subtitleLanguage = GameLanguageIndex(*value, true);
     }
     config.fasterMenus = FindConfigValue<bool>(document, "game", "faster_menus");
     config.saveAnywhere = FindConfigValue<bool>(document, "game", "save_anywhere");
@@ -992,6 +1021,36 @@ inline bool SetSkipAnyCutscene(bool value) {
     return WriteSetting("game", "skip_cutscenes", FormatString(value ? "any" : "seen"));
 }
 
+// Options > Game > Voices (hle/otherm_language.cpp): the Japanese voice acting, which the USA disc carries too.
+inline bool JapaneseVoices() {
+    return Get().japaneseVoices.value_or(false);
+}
+
+inline bool SetJapaneseVoices(bool value) {
+    Mutable().japaneseVoices = value;
+    return WriteSetting("game", "voices", FormatString(value ? "jp" : "en"));
+}
+
+// Options > Game > Text language and Subtitles (hle/otherm_language.cpp): the game's own language index, -1 for the
+// game's own setting, -2 for subtitles off.
+inline int32_t TextLanguage() {
+    return Get().textLanguage.value_or(-1);
+}
+
+inline int32_t SubtitleLanguage() {
+    return Get().subtitleLanguage.value_or(-1);
+}
+
+inline bool SetTextLanguage(int32_t index) {
+    Mutable().textLanguage = index;
+    return WriteSetting("game", "text_language", FormatString(GameLanguageCode(index)));
+}
+
+inline bool SetSubtitleLanguage(int32_t index) {
+    Mutable().subtitleLanguage = index;
+    return WriteSetting("game", "subtitles", FormatString(GameLanguageCode(index)));
+}
+
 inline bool FastForwardToggle(bool fallback = false) {
     return Get().fastForwardToggle.value_or(fallback);
 }
@@ -1406,6 +1465,15 @@ inline void LogLoadedConfig() {
             }
             if (config.skipAnyCutscene) {
                 std::cout << " skip_cutscenes=" << (*config.skipAnyCutscene ? "any" : "seen");
+            }
+            if (config.japaneseVoices) {
+                std::cout << " voices=" << (*config.japaneseVoices ? "jp" : "en");
+            }
+            if (config.textLanguage) {
+                std::cout << " text_language=" << GameLanguageCode(*config.textLanguage);
+            }
+            if (config.subtitleLanguage) {
+                std::cout << " subtitles=" << GameLanguageCode(*config.subtitleLanguage);
             }
             if (config.disableCopyFilter) {
                 std::cout << " disable_copy_filter=" << (*config.disableCopyFilter ? "true" : "false");

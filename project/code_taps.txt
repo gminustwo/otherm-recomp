@@ -19,3 +19,10 @@
 # room-based choice of model 253) with a choice by the suit bits. The taps take the 253 branch and set the model.
 805F60FC before r0
 805F6104 after r3
+# Options > Game > Subtitles (runtime/src/hle/otherm_language.cpp): the subtitle manager rel_805B16F8 takes the text
+# language here (mr r28, r3 after fn_8013AA30) for the message_all.dat section it loads and its layout; the tap gives
+# it the subtitle language instead.
+805B1778 before r3
+# Japanese text or subtitles: fn_80137B44 picks the fonts by the text language it loads here (0: japanese_font, the
+# only one with kana and kanji); the tap gives 0 so the Japanese fonts load.
+80137D08 after r3
