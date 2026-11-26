@@ -1717,17 +1717,23 @@ std::vector<OptRow> OptionsRows(int tab) {
         };
         rows.push_back({"Voices", RuntimeConfigFile::JapaneseVoices() ? "Japanese" : "English", [](int) {
             RuntimeConfigFile::SetJapaneseVoices(!RuntimeConfigFile::JapaneseVoices());
+            RT_LOGF(RT_TAG_RUNTIME, "[options] voices %s\n", RuntimeConfigFile::JapaneseVoices() ? "jp" : "en");
         }, "The language the characters speak in movies and cutscenes: the disc has the English and the Japanese voice "
            "acting, no other. Applies from the next line spoken."});
         OptRow text{"Text language", languageName(RuntimeConfigFile::TextLanguage()), [stepChoice](int d) {
             RuntimeConfigFile::SetTextLanguage(stepChoice(kTextChoices, 9, RuntimeConfigFile::TextLanguage(), d));
             OthermLanguageApply();
+            RT_LOGF(RT_TAG_RUNTIME, "[options] text language %s%s\n",
+                    RuntimeConfigFile::GameLanguageCode(RuntimeConfigFile::TextLanguage()),
+                    OthermLanguageStarted() ? " (at the next start)" : "");
         }, "Menus, messages and the HUD, over the game's own Language option."};
         if (OthermLanguageStarted()) text.warn = "Applies at the next start.";
         rows.push_back(text);
         OptRow subtitles{"Subtitles", languageName(RuntimeConfigFile::SubtitleLanguage()), [stepChoice](int d) {
             RuntimeConfigFile::SetSubtitleLanguage(stepChoice(kSubtitleChoices, 10, RuntimeConfigFile::SubtitleLanguage(), d));
             OthermLanguageApply();
+            RT_LOGF(RT_TAG_RUNTIME, "[options] subtitles %s\n",
+                    RuntimeConfigFile::GameLanguageCode(RuntimeConfigFile::SubtitleLanguage()));
         }, "Movies and cutscenes. Game setting: the game's own Subtitles option and text language."};
         if (OthermLanguageStarted() && !OthermJapaneseFontLoaded()) subtitles.warn = "Japanese needs a restart.";
         rows.push_back(subtitles);
