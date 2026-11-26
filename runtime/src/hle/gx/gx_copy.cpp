@@ -5,6 +5,7 @@
 #include "settings_overlay.h"
 
 #include <aurora/aurora.h>
+#include <aurora/gfx.h>
 #include <dolphin/gx/GXAurora.h>
 
 #include <algorithm>
@@ -14,6 +15,8 @@
 #include <map>
 #include <mutex>
 #include <vector>
+
+extern "C" AuroraCopyStyle OthermBloomCopyStyle(uint32_t dest, uint32_t width, uint32_t height, uint32_t format);  // hle/otherm_bloom.cpp
 
 namespace {
 // Copy destinations stay GPU-only until an explicit/lazy readback. Track the
@@ -240,6 +243,9 @@ extern "C" void GX__CopyTex_800f0d00(uint32_t da, uint32_t c) {
                 rawSrcLeft, rawSrcTop, rawSrcWidth, rawSrcHeight, g_texCopyState.dstWidth, g_texCopyState.dstHeight,
                 g_texCopyState.dstFormat, g_texCopyState.dstMipmap, da, c);
     }
+    // Options > Display > Bloom, Native resolution / Blurred: how aurora makes the bloom's copies (hle/otherm_bloom.cpp).
+    aurora_set_next_copy_style(
+        OthermBloomCopyStyle(da, g_texCopyState.dstWidth, g_texCopyState.dstHeight, g_texCopyState.dstFormat));
     GXCopyTex(GuestToHostPtr(da), (GXBool)c);
     // OTHERM_DLDUMP: read each copy of 64x64 or more back to RAM and save it (dldump/copy_<seq>_<dest>_<w>x<h>_f<fmt>.bin,
     // the guest texture layout) to see what each pass produced.

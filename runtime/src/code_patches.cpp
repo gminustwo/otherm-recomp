@@ -244,6 +244,12 @@ void Reset() {
     }
 }
 
+bool SetPortTap(uint32_t address, bool after, uint8_t gpr, bool on, uint32_t value) {
+    const int id = FindTap(address, after, gpr);
+    SetTap(id, on, {TapMode::Constant, value});
+    return id >= 0;
+}
+
 std::string Describe() {
     std::string text;
     for (const Site& site : g_codeSites) {

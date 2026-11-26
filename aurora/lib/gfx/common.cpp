@@ -11,6 +11,7 @@
 #include "pipeline_cache.hpp"
 #include "tex_copy_conv.hpp"
 #include "tex_palette_conv.hpp"
+#include "tex_blur.hpp"
 #include "texture_replacement.hpp"
 #include "texture.hpp"
 #include "../window.hpp"
@@ -195,6 +196,7 @@ struct RenderPass {
   bool resolveLinearSampling = false;
   bool snapshotColorResolveSource = false;
   std::vector<tex_palette_conv::ConvRequest> paletteConvs;
+  std::vector<tex_blur::Request> blurs;
   // Copies of this pass's resolve target into a region of another texture (add_resolve_patch).
   struct Patch {
     TextureHandle dst;
@@ -766,6 +768,14 @@ void queue_palette_conv(tex_palette_conv::ConvRequest req) {
   g_renderPasses[g_currentRenderPass].paletteConvs.push_back(std::move(req));
 }
 
+void queue_texture_blur(tex_blur::Request req) {
+  if (!has_current_render_pass()) {
+    Log.warn("Dropping texture blur without an active render pass");
+    return;
+  }
+  g_renderPasses[g_currentRenderPass].blurs.push_back(std::move(req));
+}
+
 void push_color_fill(const ClipRect& rect, const Vec4<float>& color) noexcept {
   if (!has_current_render_pass() || rect.width <= 0 || rect.height <= 0) {
     return;
@@ -948,6 +958,7 @@ void initialize() {
   depth_peek::initialize();
   tex_copy_conv::initialize();
   tex_palette_conv::initialize();
+  tex_blur::initialize();
   texture_replacement::initialize();
 
   // For uniform & storage buffer offset alignments
@@ -1073,6 +1084,7 @@ void shutdown() {
   depth_peek::shutdown();
   tex_copy_conv::shutdown();
   tex_palette_conv::shutdown();
+  tex_blur::shutdown();
   texture_replacement::shutdown();
   gx::shutdown();
 
@@ -1444,6 +1456,11 @@ static void render_impl(std::vector<RenderPass>& renderPasses, wgpu::CommandEnco
     if (encodeTextureBakes) {
       for (const auto& conv : passInfo.paletteConvs) {
         tex_palette_conv::run(cmd, conv);
+      }
+      // Each reads a copy left as it was made and writes the texture the game samples, so running again in
+      // every interpolation slot gives the same result.
+      for (const auto& blur : passInfo.blurs) {
+        tex_blur::run(cmd, blur);
       }
     }
     const bool hasRenderWork = passInfo.clearColor || passInfo.clearDepth || !passInfo.commands.empty();

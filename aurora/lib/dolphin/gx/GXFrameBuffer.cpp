@@ -5,6 +5,7 @@ namespace aurora::gx::fifo { extern float g_othermScreenWiden; }
 #include "__gx.h"
 
 #include "../../gfx/tex_copy_conv.hpp"
+#include "../../gfx/tex_blur.hpp"
 #include "../../gfx/efb_ram_copy.hpp"
 #include "../../gfx/texture.hpp"
 #include "../../gx/fifo.hpp"
@@ -226,6 +227,44 @@ aurora::gfx::TextureHandle acquire_copy_texture(const aurora::gx::GXState::CopyT
   if (sameKey < kCopyTexturePoolPerKey) {
     g_copyTexturePool.push_back({key, width, height, handle, frame});
   }
+  return handle;
+}
+
+// The next GXCopyTex's style (aurora_set_next_copy_style), taken by that copy.
+AuroraCopyStyle g_nextCopyStyle = AURORA_COPY_AS_USUAL;
+
+// Where a blurred copy is made and the blur's middle step (AURORA_COPY_BLURRED): the texture the game samples gets
+// the blur of a copy left as it was made, so the blur gives the same result however often a frame is encoded.
+struct BlurScratchEntry {
+  aurora::gfx::TextureHandle handle;
+  u32 width = 0;
+  u32 height = 0;
+  GXTexFmt format = GX_TF_RGBA8;
+  bool isFloat = false;  // tex_blur::kFormat: the blur's middle step and the blurred texture
+  u32 lastUsedFrame = 0;
+};
+std::vector<BlurScratchEntry> g_blurScratch;
+
+aurora::gfx::TextureHandle acquire_blur_scratch(u32 width, u32 height, GXTexFmt format, bool isFloat) {
+  const u32 frame = aurora::gfx::current_frame();
+  for (auto it = g_blurScratch.begin(); it != g_blurScratch.end();) {
+    if (it->handle.use_count() > 1) {  // still queued in a frame
+      ++it;
+      continue;
+    }
+    if (it->width == width && it->height == height && it->format == format && it->isFloat == isFloat) {
+      it->lastUsedFrame = frame;
+      return it->handle;
+    }
+    if (frame - it->lastUsedFrame > kCopyTextureIdleFrames) {
+      it = g_blurScratch.erase(it);
+      continue;
+    }
+    ++it;
+  }
+  auto handle = isFloat ? aurora::gfx::tex_blur::new_float_texture(width, height, format)
+                        : create_copy_texture(width, height, format);
+  g_blurScratch.push_back({handle, width, height, format, isFloat, frame});
   return handle;
 }
 
@@ -480,8 +519,11 @@ std::atomic<bool> g_texturePatches{true};
 extern "C" void AuroraSetTexturePatches(bool enabled) { g_texturePatches.store(enabled, std::memory_order_relaxed); }
 
 extern "C" int g_othermDrawDump;
+void aurora_set_next_copy_style(AuroraCopyStyle style) { g_nextCopyStyle = style; }
+
 void GXCopyTex(void* dest, GXBool clear) {
   g_statCopies.fetch_add(1, std::memory_order_relaxed);
+  const AuroraCopyStyle style = std::exchange(g_nextCopyStyle, AURORA_COPY_AS_USUAL);
   if (g_othermDrawDump) {  // Diagnostic: copies in draw order during the dump frame
     if (aurora::gx::fifo::get_buffer_size() != 0) aurora::gx::fifo::drain();
     std::fprintf(stderr, "[aurora] [2] [aurora::gx::fifo] [gxdraw] COPYTEX src %d,%d %dx%d dst %ux%u clear %d\n",
@@ -519,7 +561,9 @@ void GXCopyTex(void* dest, GXBool clear) {
   const u32 copiedHeight = static_cast<u32>(std::max(g_gxState.texCopySrc.height, 1)) >> (g_gxState.texCopyHalfScale ? 1 : 0);
   const auto logicalDstWidth = std::max<u32>(std::min<u32>(g_gxState.texCopyDstWidth, std::max<u32>(copiedWidth, 1)), 1);
   const auto logicalDstHeight = std::max<u32>(std::min<u32>(g_gxState.texCopyDstHeight, std::max<u32>(copiedHeight, 1)), 1);
-  const auto [scaledDstWidth, scaledDstHeight] = scale_copy_dst(logicalDstWidth, logicalDstHeight);
+  const auto [scaledDstWidth, scaledDstHeight] =
+      style == AURORA_COPY_NATIVE_SIZE ? aurora::Vec2<uint32_t>{logicalDstWidth, logicalDstHeight}
+                                       : scale_copy_dst(logicalDstWidth, logicalDstHeight);
   const auto texCopyFmt = g_gxState.texCopyFmt;
   const bool sourceHasAlpha = aurora::gx::render_target_has_alpha(g_gxState.pixelFmt);
   const bool forceOpaqueAlpha = !sourceHasAlpha && !aurora::gx::is_depth_format(texCopyFmt);
@@ -606,12 +650,36 @@ void GXCopyTex(void* dest, GXBool clear) {
   // Skip only recurring color copies so one-shot copies are never lost.
   const bool producedConsecutively = handle.revision != 0 && currentFrame - handle.lastProducedFrame <= 1;
   const bool persistentCopy = !aurora::gx::is_depth_format(texCopyFmt) && !producedConsecutively;
-  aurora::gfx::resolve_pass(handle.handle, rect, clearState.clearColor, clearState.clearAlpha, clearState.clearDepth,
+  // Blurred: made into a scratch texture, then blurred into the one the game samples (after this pass ends, before
+  // the next draws anything), by the resolution scale as Dolphin's "Bloom Blurred" does (its efb_scale texels).
+  aurora::gfx::TextureHandle resolveTarget = handle.handle;
+  aurora::gfx::TextureHandle blurMiddle;
+  const u32 blurRadius = static_cast<u32>(std::max(1.0f, std::floor(static_cast<float>(scaledDstWidth) /
+                                                                     static_cast<float>(logicalDstWidth))));
+  // The texture the game samples is a float one exactly while blurred (the copy itself can't be made into it).
+  const bool blurred = style == AURORA_COPY_BLURRED;
+  if (handle.handle && (handle.handle->format == aurora::gfx::tex_blur::kFormat) != blurred) {
+    handle.handle = blurred ? acquire_blur_scratch(scaledDstWidth, scaledDstHeight, texCopyFmt, true)
+                            : acquire_copy_texture(key, scaledDstWidth, scaledDstHeight, texCopyFmt);
+  }
+  if (blurred) {
+    resolveTarget = acquire_blur_scratch(scaledDstWidth, scaledDstHeight, texCopyFmt, false);
+    blurMiddle = acquire_blur_scratch(scaledDstWidth, scaledDstHeight, texCopyFmt, true);
+  }
+  aurora::gfx::resolve_pass(resolveTarget, rect, clearState.clearColor, clearState.clearAlpha, clearState.clearDepth,
                             clearState.clearColorValue, aurora::gx::clear_depth_value(), resolveFmt,
                             &sourceRect.sampleRect, g_gxState.texCopyHalfScale, &copyFilter, forceOpaqueAlpha,
                             sourceRect.sampleRect.w() / std::max<float>(g_gxState.texCopySrc.height, 1.0f),
                             (g_gxState.copyClamp & GX_CLAMP_TOP) != 0,
                             (g_gxState.copyClamp & GX_CLAMP_BOTTOM) != 0, persistentCopy);
+  if (style == AURORA_COPY_BLURRED) {
+    aurora::gfx::queue_texture_blur({
+        .src = resolveTarget,
+        .tmp = blurMiddle,
+        .dst = handle.handle,
+        .radius = blurRadius,
+    });
+  }
   ++handle.revision;
   handle.lastProducedFrame = currentFrame;
   handle.width = logicalDstWidth;

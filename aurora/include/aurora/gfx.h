@@ -102,6 +102,16 @@ uint64_t aurora_get_ubershader_draw_count();
 void aurora_set_disable_copy_filter(bool disabled);
 bool aurora_get_disable_copy_filter();
 
+// How the next GXCopyTex (that one only) is made, for a copy the embedder recognizes, such as a game's bloom: as
+// usual (scaled with the internal resolution), at the game's own size, or scaled and then box-blurred by the
+// resolution scale. Dolphin's "Native Resolution Bloom" and "Bloom Blurred" graphics mods do the same.
+typedef enum {
+  AURORA_COPY_AS_USUAL = 0,
+  AURORA_COPY_NATIVE_SIZE = 1,
+  AURORA_COPY_BLURRED = 2,
+} AuroraCopyStyle;
+void aurora_set_next_copy_style(AuroraCopyStyle style);
+
 // Guest-RAM write tracking. `generation` changes whenever guest RAM covering a host range was
 // written (or returns AURORA_GUEST_WRITE_UNTRACKED); `notify` reports writes aurora made itself.
 #define AURORA_GUEST_WRITE_UNTRACKED UINT64_MAX
