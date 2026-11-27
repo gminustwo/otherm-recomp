@@ -2,7 +2,7 @@
 # Packs the macOS build (tools/build-macos.sh) into an app, zipped for the release:
 #   bash tools/package-macos.sh --version v1.0.0
 # Output: dist/OtherMRecompiled-<version>-macos-arm64.zip (the name the in-game updater fetches; it holds one app,
-# "Other M Recompiled.app") and its line in dist/SHA256SUMS.txt.
+# "Other M Recompiled.app", with recomplauncher.json beside it) and its line in dist/SHA256SUMS.txt.
 # The app holds the program (the game's code in recompiled form, for the player whose disc it was built from) and the
 # port's own files, never the disc's. The program is in Contents/MacOS, its own files in Contents/Resources (where the
 # runtime looks for them in an app: runtime_config.h ExecutableDirectory), dylibs it needs that macOS lacks in
@@ -186,7 +186,14 @@ codesign --verify --strict --deep "$app"
 mkdir -p "$root/dist"
 out=$root/dist/OtherMRecompiled-$version-macos-arm64.zip
 rm -f "$out"
-(cd "$work" && ditto -c -k --keepParent --norsrc "$name.app" "$out")
+# The zip holds the app and, beside it, recomplauncher.json (RecompLauncher reads it there).
+stage=$work/zip
+rm -rf "$stage"
+mkdir -p "$stage"
+ditto "$app" "$stage/$name.app"
+cp "$root/recomplauncher.json" "$stage/"
+ditto -c -k --norsrc "$stage" "$out"
+rm -rf "$stage"
 (cd "$root/dist" && shasum -a 256 "$(basename "$out")" > SHA256SUMS.txt)
 echo "DONE: $out ($(du -h "$out" | cut -f1))"
 cat "$root/dist/SHA256SUMS.txt"

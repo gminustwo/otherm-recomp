@@ -27,8 +27,8 @@ void Commit();
 void Reset();
 // What is switched on, for the log ("" when nothing).
 std::string Describe();
-// A tap the port drives itself, not a mod's rewrite (hle/otherm_bloom.cpp): the tap at `address` gives `value`
-// while `on`, else the game's own value. False when project/code_taps.txt has no such tap.
+// A tap the port drives itself, not a mod's rewrite (hle/otherm_bloom.cpp, hle/otherm_language.cpp): the tap at
+// `address` gives `value` while `on`, else the game's own value. False when project/code_taps.txt has no such tap.
 bool SetPortTap(uint32_t address, bool after, uint8_t gpr, bool on, uint32_t value);
 // OTHERM_SELFTEST: decoding "li" and the switch on and off at a site.
 bool SelfCheck();

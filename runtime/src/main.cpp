@@ -38,6 +38,7 @@
 #include <io.h>
 #include <crtdbg.h>
 #include <windows.h>
+#include <shellapi.h>
 #include <mmsystem.h>
 #include <dbghelp.h>
 #else
@@ -102,6 +103,8 @@ extern "C" int g_gxFrameCount;
 extern "C" const char* DVDResolveHostPathForTest(const char* dvdPath);
 bool OS_HLE_InterruptsEnabled() noexcept;
 void OthermBloomApply();  // hle/otherm_bloom.cpp: Options > Display > Bloom's code tap
+void OthermLanguageApply();  // hle/otherm_language.cpp: the language taps, before the game loads its fonts
+bool OthermLanguageSelfCheck();
 
 namespace {
 
@@ -1358,6 +1361,96 @@ bool LauncherWanted(int argc, char** argv, bool gameReady) {
     return show;
 }
 
+// --prepare: sets the game's files up from the player's disc image without a window, for a launcher's setup step
+// (RecompLauncher runs it with --game=<disc image>, recomplauncher.json). The same set-up as the start screen's
+// (game_folder.h). Prints "progress <0-1> <text>" lines, and the reason last when it fails. Files already set up are
+// kept: progress 1 at once, no disc image needed. With RECOMPLAUNCHER_DATA, game-files-ready.txt there says the set-up
+// has finished (removed before a set-up starts, written once it is done).
+// The command line in UTF-8, as the runtime's paths are. On Windows main() gets its arguments in the ANSI code page,
+// which can't hold every character of a player's folder names (an accented or non-Latin user name), so --game would
+// name another file; the wide command line has them all.
+std::vector<std::string> Utf8Arguments(int argc, char** argv) {
+#if defined(_WIN32)
+    int count = 0;
+    if (LPWSTR* wide = ::CommandLineToArgvW(::GetCommandLineW(), &count); wide != nullptr) {
+        std::vector<std::string> out;
+        out.reserve(static_cast<size_t>(count));
+        for (int i = 0; i < count; ++i) out.push_back(RuntimeConfigFile::PathToUtf8(std::filesystem::path(wide[i])));
+        ::LocalFree(wide);
+        return out;
+    }
+#endif
+    std::vector<std::string> out;
+    for (int i = 0; i < argc; ++i) out.emplace_back(argv[i] != nullptr ? argv[i] : "");
+    return out;
+}
+
+// An environment variable that holds a path, read as wide text on Windows for the same reason.
+std::filesystem::path EnvironmentPath(const char* name) {
+#if defined(_WIN32)
+    const std::wstring wideName(name, name + std::strlen(name));
+    const wchar_t* value = ::_wgetenv(wideName.c_str());
+    return value != nullptr ? std::filesystem::path(value) : std::filesystem::path();
+#else
+    const char* value = std::getenv(name);
+    return value != nullptr ? RuntimeConfigFile::PathFromUtf8(value) : std::filesystem::path();
+#endif
+}
+
+int RunPrepare(const std::string& game) {
+    const auto progress = [](float fraction, const char* text) {
+        std::printf("progress %.2f %s\n", fraction, text);
+        std::fflush(stdout);
+    };
+    std::filesystem::path marker;
+    if (const std::filesystem::path data = EnvironmentPath("RECOMPLAUNCHER_DATA"); !data.empty()) {
+        marker = data / "game-files-ready.txt";
+    }
+    const auto markReady = [&marker] {
+        if (marker.empty()) return;
+        std::error_code ec;
+        std::filesystem::create_directories(marker.parent_path(), ec);
+        std::ofstream(marker) << GameFolder::Describe() << "\n";
+    };
+    if (GameFolder::Ready()) {
+        markReady();
+        progress(1.0f, "Already set up");
+        return 0;
+    }
+    if (!marker.empty()) {
+        std::error_code ec;
+        std::filesystem::remove(marker, ec);
+    }
+    if (game.empty()) {
+        std::printf("The game's files are not set up yet. Pick your disc image of Metroid: Other M (USA, R3OE01, "
+                    "revision 1).\n");
+        return 2;
+    }
+    progress(0.0f, "Checking your disc image");
+    GameFolder::StartSetUp(RuntimeConfigFile::PathFromUtf8(game));
+    float shown = 0.0f;
+    auto lastLine = std::chrono::steady_clock::now();
+    for (;;) {
+        const GameFolder::SetUpStatus status = GameFolder::Progress();  // saves the finished set-up's folder
+        if (!status.running) {
+            if (!status.ok) {
+                std::printf("%s\n", status.message.c_str());
+                return 1;
+            }
+            markReady();
+            progress(1.0f, "Set up");
+            return 0;
+        }
+        const auto now = std::chrono::steady_clock::now();
+        if (status.fraction - shown >= 0.01f || now - lastLine >= std::chrono::minutes(1)) {
+            shown = std::max(shown, status.fraction);
+            progress(std::clamp(shown, 0.0f, 0.99f), "Unpacking the game's files from your disc image");
+            lastLine = now;
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+}
+
 } // namespace
 
 // Retained as the thin public wrapper over WriteFatalLogImpl (declared in
@@ -1455,10 +1548,33 @@ int RuntimeMain(int argc, char** argv) {
     std::string currentEntryLabel;
 
     try {
-        if (argc != 1) {
-            throw std::invalid_argument("The game runtime does not accept command-line options; use Config.toml through the installed host.");
+        // --play skips the start screen (LauncherWanted); --prepare with --game=<disc image> sets the game's files up
+        // without a window (RunPrepare). Anything else is refused.
+        bool prepare = false;
+        std::string game;
+        const std::vector<std::string> args = Utf8Arguments(argc, argv);
+        for (size_t i = 1; i < args.size(); ++i) {
+            const std::string_view arg = args[i];
+            if (arg == "--prepare") {
+                prepare = true;
+            } else if (arg.rfind("--game=", 0) == 0) {
+                game = std::string(arg.substr(7));
+            } else if (arg == "--game" && i + 1 < args.size()) {
+                game = args[++i];
+            } else if (arg != "--play") {
+                throw std::invalid_argument("The game runtime does not accept the command-line option " + std::string(arg) +
+                                            "; use Config.toml through the installed host.");
+            }
+        }
+        if (!game.empty() && !prepare) {
+            throw std::invalid_argument("--game is read with --prepare; the start screen sets the game up otherwise.");
         }
         RuntimeConfigFile::LogLoadedConfig();
+        if (prepare) {
+            const int code = RunPrepare(game);
+            ShutdownProcessTranscript();
+            return code;
+        }
 #if defined(_WIN32)
         if (!g_cpuSetNote.empty()) RT_LOGF(RT_TAG_RUNTIME, "%s\n", g_cpuSetNote.c_str());
 #endif
@@ -1473,6 +1589,9 @@ int RuntimeMain(int argc, char** argv) {
             const bool gecko = ModRuntime::SelfCheck();
             RT_LOGF(RT_TAG_RUNTIME, "selftest: gecko codes %s\n", gecko ? "ok" : "FAILED");
             ok = ok && gecko;
+            const bool languages = OthermLanguageSelfCheck();
+            RT_LOGF(RT_TAG_RUNTIME, "selftest: languages %s\n", languages ? "ok" : "FAILED");
+            ok = ok && languages;
             if (const char* image = std::getenv("OTHERM_SELFTEST_IMAGE")) {  // a disc image: what the first-run setup sees
                 DiscImage::Info info;
                 std::string error;
@@ -1499,6 +1618,7 @@ int RuntimeMain(int argc, char** argv) {
         ModInstall::StartInstallingDroppedZips();
         ModRuntime::Load();
         OthermBloomApply();
+        OthermLanguageApply();
         if (const char* deterministic = std::getenv("OTHERM_DETERMINISTIC");
             deterministic != nullptr && std::string(deterministic) == "1") {
             DetClock::Enable();

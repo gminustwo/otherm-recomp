@@ -10,6 +10,7 @@ namespace HudTheme {
 
 constexpr ImU32 kCyan = IM_COL32(80, 220, 255, 255);
 constexpr ImU32 kOrange = IM_COL32(255, 150, 40, 255);
+constexpr ImU32 kAmber = IM_COL32(255, 196, 120, 255);  // Options: action rows, and what needs a restart
 constexpr ImU32 kText = IM_COL32(225, 244, 255, 255);
 constexpr ImU32 kTextDim = IM_COL32(130, 175, 205, 255);
 constexpr ImU32 kPanelTop = IM_COL32(10, 30, 54, 238);

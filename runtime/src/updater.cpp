@@ -365,7 +365,8 @@ void Start() {
         std::ifstream in(EngineDir() / "version.txt");
         std::getline(in, g_current);
         while (!g_current.empty() && (g_current.back() == '\r' || g_current.back() == ' ')) g_current.pop_back();
-        if (g_current.empty() || !CheckEnabled()) return;  // a development build, or checks turned off
+        // A development build, a launcher that updates the game, or checks turned off.
+        if (g_current.empty() || FromLauncher() || !CheckEnabled()) return;
         g_state = State::Checking;
         std::thread(Check).detach();
     });
@@ -384,6 +385,7 @@ std::string Latest() {
 }
 
 void Install() {
+    if (FromLauncher()) return;
     State expected = State::Available;
     if (!g_state.compare_exchange_strong(expected, State::Downloading)) {
         expected = State::Failed;  // a failed download or check: try again
@@ -398,9 +400,14 @@ bool CheckEnabled() { return RuntimeConfigFile::CheckUpdates(true); }
 
 void SetCheckEnabled(bool on) {
     RuntimeConfigFile::SetCheckUpdates(on);
-    if (on && g_state == State::Off && !Current().empty()) {
+    if (on && g_state == State::Off && !Current().empty() && !FromLauncher()) {
         g_state = State::Checking;
         std::thread(Check).detach();
     }
+}
+
+bool FromLauncher() {
+    const char* launcher = std::getenv("RECOMPLAUNCHER");
+    return launcher != nullptr && std::strcmp(launcher, "1") == 0;
 }
 } // namespace Updater

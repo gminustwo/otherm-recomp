@@ -101,6 +101,11 @@ void OthermRequestCutsceneSkip();
 bool OthermCutscenePlaying();
 bool OthermMovieUp();
 void OthermBloomApply();  // hle/otherm_bloom.cpp: Options > Display > Bloom's code tap
+// hle/otherm_language.cpp: a changed text or subtitle language's code taps; the game has started (its text language is
+// set until the next start); the Japanese fonts loaded at that start.
+void OthermLanguageApply();
+bool OthermLanguageStarted();
+bool OthermJapaneseFontLoaded();
 uint32_t VI_HLE_RetraceCount() noexcept;
 
 // Defined in runtime/src/hle/audio/ax_mix.cpp. That header is private to the HLE
@@ -1511,6 +1516,8 @@ struct OptRow {
     bool button = false;
     // The label's colour when not selected (0: the usual one): the start screen's notes and results.
     ImU32 color = 0;
+    // After the help, in amber: what does not take effect until the next start.
+    std::string warn;
 };
 
 // Options > Display > Graphics API, Automatic: what it picks on this computer and why (vulkan_probe.h; checked here
@@ -1692,11 +1699,59 @@ std::vector<OptRow> OptionsRows(int tab) {
             RuntimeConfigFile::SetSkipAnyCutscene(!RuntimeConfigFile::SkipAnyCutscene(true));
         }, "Start, A, LB or Backspace (or - as in the game) skip a cutscene the way the game itself skips one. Any: "
            "every cutscene. Seen ones: only those the game allows, seen before or once the game is cleared."});
+        // Voices, text and subtitles each in their own language (hle/otherm_language.cpp). The game's language index:
+        // 0 JP, 1 US, 2 DE, 3 FR, 4 ES, 5 IT, 6 US French, 7 US Spanish; -1 the game's own setting, -2 subtitles off.
+        static constexpr int32_t kTextChoices[] = {-1, 1, 0, 6, 7, 3, 4, 2, 5};
+        static constexpr int32_t kSubtitleChoices[] = {-1, -2, 1, 0, 6, 7, 3, 4, 2, 5};
+        const auto languageName = [](int32_t index) -> std::string {
+            static constexpr const char* kNames[] = {"Japanese", "English", "German", "French (Europe)",
+                                                     "Spanish (Europe)", "Italian", "French (Canada)",
+                                                     "Spanish (Latin America)"};
+            return index >= 0 && index < 8 ? kNames[index] : index == -2 ? "Off" : "Game setting";
+        };
+        // A / Enter steps on and wraps; left and right step either way.
+        const auto stepChoice = [](const int32_t* choices, int count, int32_t current, int d) {
+            int at = 0;
+            while (at < count && choices[at] != current) ++at;
+            return choices[((at == count ? 0 : at) + (d == 0 ? 1 : d) % count + count) % count];
+        };
+        rows.push_back({"Voices", RuntimeConfigFile::JapaneseVoices() ? "Japanese" : "English", [](int) {
+            RuntimeConfigFile::SetJapaneseVoices(!RuntimeConfigFile::JapaneseVoices());
+            RT_LOGF(RT_TAG_RUNTIME, "[options] voices %s\n", RuntimeConfigFile::JapaneseVoices() ? "jp" : "en");
+        }, "The language the characters speak in movies and cutscenes: the disc has the English and the Japanese voice "
+           "acting, no other. Applies from the next line spoken."});
+        OptRow text{"Text language", languageName(RuntimeConfigFile::TextLanguage()), [stepChoice](int d) {
+            RuntimeConfigFile::SetTextLanguage(stepChoice(kTextChoices, 9, RuntimeConfigFile::TextLanguage(), d));
+            OthermLanguageApply();
+            RT_LOGF(RT_TAG_RUNTIME, "[options] text language %s%s\n",
+                    RuntimeConfigFile::GameLanguageCode(RuntimeConfigFile::TextLanguage()),
+                    OthermLanguageStarted() ? " (at the next start)" : "");
+        }, "Menus, messages and the HUD, over the game's own Language option."};
+        if (OthermLanguageStarted()) text.warn = "Applies at the next start.";
+        rows.push_back(text);
+        OptRow subtitles{"Subtitles", languageName(RuntimeConfigFile::SubtitleLanguage()), [stepChoice](int d) {
+            RuntimeConfigFile::SetSubtitleLanguage(stepChoice(kSubtitleChoices, 10, RuntimeConfigFile::SubtitleLanguage(), d));
+            OthermLanguageApply();
+            RT_LOGF(RT_TAG_RUNTIME, "[options] subtitles %s\n",
+                    RuntimeConfigFile::GameLanguageCode(RuntimeConfigFile::SubtitleLanguage()));
+        }, "Movies and cutscenes. Game setting: the game's own Subtitles option and text language."};
+        // Japanese subtitles load the game's Japanese font for all of its text (hle/otherm_language.cpp), whose Latin
+        // letters are wider and evenly spaced: other languages' lines can run past their boxes. No release has
+        // Japanese subtitles over other text, so nothing in the game is made for it.
+        constexpr int32_t kJapanese = 0;
+        if (RuntimeConfigFile::SubtitleLanguage() == kJapanese && RuntimeConfigFile::TextLanguage() != kJapanese) {
+            subtitles.help = "Japanese subtitles show all other text in the Japanese font too: its letters are wider, and "
+                             "some lines can run past their boxes.";
+        }
+        if (OthermLanguageStarted() && !OthermJapaneseFontLoaded()) subtitles.warn = "Japanese needs a restart.";
+        rows.push_back(subtitles);
         rows.push_back({"Fast-forward button", g_ffToggleMode ? "Press to toggle" : "Hold", [](int) {
             g_ffToggleMode = !g_ffToggleMode;
             RuntimeConfigFile::SetFastForwardToggle(g_ffToggleMode);
         }, "Keyboard: F.  Controller: click the right stick."});
-        if (!Updater::Current().empty()) {
+        if (!Updater::Current().empty() && Updater::FromLauncher()) {
+            rows.push_back({"Update", Updater::Current(), {}, "RecompLauncher keeps the game up to date."});
+        } else if (!Updater::Current().empty()) {
             using S = Updater::State;
             const S st = Updater::GetState();
             const std::string value = st == S::Available ? Updater::Latest() + " - install"
@@ -2967,7 +3022,7 @@ void DrawOptionsMenu() {
             list->AddLine(S(-hw + 30, y - 15), S(hw - 30, y - 15), IM_COL32(80, 220, 255, 22), 1.0f);
         }
         const float labelW = tableRow ? kCellX[0][0] - (-hw + 56) - 10.0f : action ? 2 * hw - 90.0f : 2 * hw - 330.0f;
-        const ImU32 labelCol = sel ? IM_COL32(255, 255, 255, 255) : row.color ? row.color : action ? IM_COL32(255, 196, 120, 255) : kText;
+        const ImU32 labelCol = sel ? IM_COL32(255, 255, 255, 255) : row.color ? row.color : action ? kAmber : kText;
         Txt(row.label, -hw + 56, y, Fit(row.label, 19.0f, labelW), labelCol, 0.0f, 0.0f, sel ? IM_COL32(80, 220, 255, 50) : 0);
         if (tableRow) {
             // Two cells; the picked one (left / right) is a lit plate. A fixed cell is dim and has no plate.
@@ -3020,8 +3075,18 @@ void DrawOptionsMenu() {
     // What the selected row does, and the buttons.
     const float footY = bottom + 58.0f;
     list->AddLine(S(-hw + 18, footY + 10), S(hw - 18, footY + 10), Alpha(kCyan, 60), 1.0f);
-    const std::string help = g_optRow >= 0 && g_optRow < int(rows.size()) ? rows[static_cast<size_t>(g_optRow)].help : "";
-    Txt(help, 0, footY - 8, Fit(help, 15.0f, 2 * hw - 48.0f), kText, 0.5f);
+    const OptRow* selRow = g_optRow >= 0 && g_optRow < int(rows.size()) ? &rows[static_cast<size_t>(g_optRow)] : nullptr;
+    const std::string help = selRow ? selRow->help : "";
+    if (!selRow || selRow->warn.empty()) {
+        Txt(help, 0, footY - 8, Fit(help, 15.0f, 2 * hw - 48.0f), kText, 0.5f);
+    } else {
+        const std::string lead = help.empty() ? std::string() : help + " ";
+        const float size = Fit(lead + selRow->warn, 15.0f, 2 * hw - 48.0f);
+        const float leadW = Measure(size * k, lead.c_str()).x / k;
+        const float left = -(leadW + Measure(size * k, selRow->warn.c_str()).x / k) * 0.5f;
+        Txt(lead, left, footY - 8, size, kText);
+        Txt(selRow->warn, left + leadW, footY - 8, size, kAmber);
+    }
     std::string hint = std::string(hints.prev) + "/" + hints.next + "  PAGE     UP/DOWN  CHOOSE     LEFT/RIGHT  CHANGE     " +
                        hints.select + "  SELECT     " + hints.close + "  CLOSE";
     if (g_launcher.active) {

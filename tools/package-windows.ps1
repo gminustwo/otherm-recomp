@@ -37,6 +37,7 @@ foreach ($f in 'dsp_coef.bin', 'initial_pipeline_cache.db') {
 }
 foreach ($d in 'wii_bootstrap', 'startup') { Copy-Item -LiteralPath (Join-Path $build $d) -Destination $app -Recurse }
 Copy-Item -LiteralPath $nodExe -Destination (Join-Path $app 'nodtool.exe')
+Copy-Item -LiteralPath (Join-Path $root 'recomplauncher.json') -Destination $app   # RecompLauncher reads it beside the program
 Set-Content -LiteralPath (Join-Path $app 'portable.txt') -Encoding ascii `
     -Value 'Portable mode: settings, saves and logs go to UserData\ next to the game.'
 Set-Content -LiteralPath (Join-Path $app 'version.txt') -Encoding ascii -Value $Version   # the updater compares it
