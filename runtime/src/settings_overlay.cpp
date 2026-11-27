@@ -1735,6 +1735,14 @@ std::vector<OptRow> OptionsRows(int tab) {
             RT_LOGF(RT_TAG_RUNTIME, "[options] subtitles %s\n",
                     RuntimeConfigFile::GameLanguageCode(RuntimeConfigFile::SubtitleLanguage()));
         }, "Movies and cutscenes. Game setting: the game's own Subtitles option and text language."};
+        // Japanese subtitles load the game's Japanese font for all of its text (hle/otherm_language.cpp), whose Latin
+        // letters are wider and evenly spaced: other languages' lines can run past their boxes. No release has
+        // Japanese subtitles over other text, so nothing in the game is made for it.
+        constexpr int32_t kJapanese = 0;
+        if (RuntimeConfigFile::SubtitleLanguage() == kJapanese && RuntimeConfigFile::TextLanguage() != kJapanese) {
+            subtitles.help = "Japanese subtitles show all other text in the Japanese font too: its letters are wider, and "
+                             "some lines can run past their boxes.";
+        }
         if (OthermLanguageStarted() && !OthermJapaneseFontLoaded()) subtitles.warn = "Japanese needs a restart.";
         rows.push_back(subtitles);
         rows.push_back({"Fast-forward button", g_ffToggleMode ? "Press to toggle" : "Hold", [](int) {
